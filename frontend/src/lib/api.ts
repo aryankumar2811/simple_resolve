@@ -37,6 +37,15 @@ export interface ClientSummary {
   active_restriction_level: number
 }
 
+export interface ProactiveAction {
+  timestamp: string
+  action: 'notification_sent' | 'step_up_auth' | 'follow_up_call_scheduled' | 'info_request_sent' | 'auto_de_escalated' | 'guardrail_intercept' | 'coordinated_alert'
+  label: string
+  trigger: string
+  channel: string
+  status: string
+}
+
 export interface ClientDetail extends ClientSummary {
   date_of_birth: string
   archetype_trajectory: string
@@ -48,6 +57,10 @@ export interface ClientDetail extends ClientSummary {
   total_inflow_30d: number
   total_outflow_30d: number
   deposit_frequency_per_week: number
+  proactive_actions: ProactiveAction[]
+  latest_investigation_id: string | null
+  latest_investigation_status: string | null
+  latest_investigation_classification: string | null
 }
 
 export interface Transaction {
@@ -113,6 +126,16 @@ export interface NetworkGraph {
   edges: { from: string; to: string; type: string }[]
 }
 
+export interface StepLogEntry {
+  step: string
+  label: string
+  layer: number
+  status: 'complete' | 'running' | 'pending'
+  timestamp: string
+  details: string
+  action_type: string | null
+}
+
 export interface InvestigationSummary {
   id: string
   client_id: string
@@ -123,6 +146,7 @@ export interface InvestigationSummary {
   is_coordinated: boolean
   correlated_client_ids: string[]
   response_level: number
+  step_log: StepLogEntry[]
   created_at: string
   updated_at: string
 }
@@ -132,6 +156,13 @@ export interface InvestigationDetail extends InvestigationSummary {
   network_graph: NetworkGraph | null
   reasoning: string | null
   str_draft: STRDraft | null
+}
+
+export interface SimulateResponse {
+  investigation_id: string
+  client_id: string
+  client_name: string
+  message: string
 }
 
 export interface DashboardSummary {
@@ -180,4 +211,6 @@ export const api = {
       analyst: 'human_analyst',
       notes,
     }),
+  simulate: (clientId: string) =>
+    post<SimulateResponse>(`/investigations/simulate/${clientId}`, {}),
 }
