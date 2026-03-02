@@ -340,9 +340,9 @@ export default function InvestigationDetailPage() {
       const data = await api.getInvestigation(params.id as string)
       setInv(data)
       // Fetch audit in background
-      api.getAuditTrail && (api as any).getAuditTrail?.(params.id as string)
-        .then((a: any[]) => setAuditLog(a))
-        .catch(() => {})
+      ;(api as any).getAuditTrail?.(params.id as string)
+        ?.then((a: any[]) => setAuditLog(a))
+        ?.catch(() => {})
     } catch {
       setError('Investigation not found')
     } finally {

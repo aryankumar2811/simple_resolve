@@ -324,7 +324,7 @@ export default function DashboardPage() {
           >
             <h2 className="text-sm font-semibold" style={{ color: '#94a3b8' }}>Recent Activity</h2>
           </div>
-          <div className="divide-y max-h-72 overflow-y-auto" style={{ divideColor: 'rgba(255,255,255,0.03)' }}>
+          <div className="divide-y divide-white/5 max-h-72 overflow-y-auto">
             {dashboard.recent_activity.map((entry) => (
               <div key={entry.id} className="flex items-start gap-3 px-5 py-2.5 text-sm">
                 <span className="text-xs font-mono pt-0.5 whitespace-nowrap shrink-0" style={{ color: '#475569' }}>
