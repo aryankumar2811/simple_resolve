@@ -50,6 +50,10 @@ class BehavioralProfile(Base):
     # Format: [{"indicator": str, "detected_at": str, "confidence": float}]
     indicators_detected: Mapped[list] = mapped_column(JSON, default=list)
 
+    # System-initiated proactive actions (notifications, step-up auth, calls, info requests)
+    # Format: [{"timestamp", "action", "label", "trigger", "channel", "status"}]
+    proactive_actions: Mapped[list] = mapped_column(JSON, default=list)
+
     last_updated: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     # Relationships

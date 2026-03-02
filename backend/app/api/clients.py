@@ -2,7 +2,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.models import AccountRestriction, BehavioralProfile, Client, Transaction
+from app.models import AccountRestriction, BehavioralProfile, Client, Investigation, Transaction
 from app.schemas import BehavioralProfileOut, ClientDetail, ClientSummary, TransactionOut
 from app.services.layer1_behavioral import compute_profile
 
@@ -31,9 +31,26 @@ def _to_summary(client: Client) -> ClientSummary:
     )
 
 
-def _to_detail(client: Client) -> ClientDetail:
+def _to_detail(client: Client, db: Session | None = None) -> ClientDetail:
     profile: BehavioralProfile | None = client.behavioral_profile
     base = _to_summary(client)
+
+    # Find latest investigation for this client
+    latest_inv_id = None
+    latest_inv_status = None
+    latest_inv_classification = None
+    if db:
+        latest_inv = (
+            db.query(Investigation)
+            .filter(Investigation.client_id == client.id)
+            .order_by(Investigation.created_at.desc())
+            .first()
+        )
+        if latest_inv:
+            latest_inv_id = latest_inv.id
+            latest_inv_status = latest_inv.status
+            latest_inv_classification = latest_inv.classification
+
     return ClientDetail(
         **base.model_dump(),
         date_of_birth=client.date_of_birth,
@@ -46,6 +63,10 @@ def _to_detail(client: Client) -> ClientDetail:
         total_inflow_30d=profile.total_inflow_30d if profile else 0.0,
         total_outflow_30d=profile.total_outflow_30d if profile else 0.0,
         deposit_frequency_per_week=profile.deposit_frequency_per_week if profile else 0.0,
+        proactive_actions=profile.proactive_actions if profile else [],
+        latest_investigation_id=latest_inv_id,
+        latest_investigation_status=latest_inv_status,
+        latest_investigation_classification=latest_inv_classification,
     )
 
 
@@ -61,7 +82,7 @@ def get_client(client_id: str, db: Session = Depends(get_db)):
     client = db.query(Client).filter(Client.id == client_id).first()
     if not client:
         raise HTTPException(status_code=404, detail="Client not found")
-    return _to_detail(client)
+    return _to_detail(client, db)
 
 
 @router.get("/{client_id}/profile", response_model=BehavioralProfileOut)

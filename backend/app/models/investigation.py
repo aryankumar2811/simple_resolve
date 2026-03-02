@@ -41,6 +41,10 @@ class Investigation(Base):
     # Full LangGraph state snapshot kept for debugging and audit
     langgraph_state: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
 
+    # Step-by-step pipeline log for the simulate progress bar
+    # Each entry: {step, label, layer, status, timestamp, details, action_type}
+    step_log: Mapped[list] = mapped_column(JSON, default=list)
+
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 

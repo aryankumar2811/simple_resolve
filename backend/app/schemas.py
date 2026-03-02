@@ -37,6 +37,10 @@ class ClientDetail(ClientSummary):
     total_inflow_30d: float
     total_outflow_30d: float
     deposit_frequency_per_week: float
+    proactive_actions: list[dict] = []
+    latest_investigation_id: Optional[str] = None
+    latest_investigation_status: Optional[str] = None
+    latest_investigation_classification: Optional[str] = None
 
 
 # ── Transaction ───────────────────────────────────────────────────────────────
@@ -114,6 +118,7 @@ class InvestigationSummary(BaseModel):
     is_coordinated: bool
     correlated_client_ids: list[str]
     response_level: int
+    step_log: list[dict] = []
     created_at: datetime
     updated_at: datetime
 
@@ -157,6 +162,7 @@ class InvestigationDetail(BaseModel):
     classification: Optional[str]
     confidence: Optional[float]
     reasoning: Optional[str]
+    step_log: list[dict] = []
     str_draft: Optional[STRDraftOut]
     created_at: datetime
     updated_at: datetime
@@ -167,6 +173,13 @@ class InvestigationDetail(BaseModel):
 class TriggerInvestigationRequest(BaseModel):
     trigger_type: str = "manual"
     notes: Optional[str] = None
+
+
+class SimulateResponse(BaseModel):
+    investigation_id: str
+    client_id: str
+    client_name: str
+    message: str = "Simulation started"
 
 
 class STRDecision(BaseModel):
