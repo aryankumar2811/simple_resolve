@@ -195,9 +195,6 @@ def _run_simulate_pipeline(
     investigation_id: str,
     client_id: str,
     client_name: str,
-    profile_archetype: str,
-    profile_risk_score: float,
-    restriction_level: int,
 ) -> None:
     """
     Background task: runs the full Layer 1 → 2 → 3 pipeline with step logging.
@@ -227,37 +224,63 @@ def _run_simulate_pipeline(
         append_step("behavioral_baseline", "Computing 90-day behavioral baseline", 1,
                     "Average deposit, withdrawal, frequency, and product usage ratios calculated")
 
+        # Recompute profile (Layer 1) — must happen before reading archetype/score
+        fresh_profile = compute_profile(client_id, db)
+        db.commit()
+
+        profile_archetype = fresh_profile.archetype or "new_investor"
+        profile_risk_score = fresh_profile.overall_risk_score or 0.0
+        indicators = [i["indicator"] for i in (fresh_profile.indicators_detected or [])]
+
         append_step("archetype_classification", f"Behavioral archetype: {profile_archetype.replace('_', ' ')}", 1,
-                    f"Client classified as {profile_archetype.replace('_', ' ')} based on transaction patterns")
+                    f"Client classified as {profile_archetype.replace('_', ' ')} — "
+                    f"{len(fresh_profile.known_counterparties or [])} counterparties mapped")
 
         append_step("network_graph_build", "Building known-counterparty network graph", 1,
-                    "Counterparty relationships mapped: frequency, directionality, novelty score")
+                    f"{len(fresh_profile.known_counterparties or [])} counterparty nodes, "
+                    f"directionality and novelty scored")
 
+        scores_str = ", ".join(f"{k}: {v:.2f}" for k, v in fresh_profile.risk_scores.items() if k != "overall")
         append_step("per_product_risk_scores", "Computing per-product risk scores", 1,
-                    "Separate risk scores computed: chequing, crypto, TFSA, e-transfer, investments")
+                    f"Per-product scores: {scores_str}")
 
-        append_step("risk_trajectory", "Calculating risk trajectory", 1,
-                    "7-day trend analysis — comparing current scores to 30-day rolling average")
+        trend = fresh_profile.risk_trend or "stable"
+        append_step("risk_trajectory", f"Risk trajectory: {trend}", 1,
+                    f"7-day trend vs 30-day rolling average — trajectory: {trend}")
 
         deviation_detail = (
             f"Composite deviation score: {profile_risk_score:.2f} — "
-            + ("significant deviations detected across multiple dimensions" if profile_risk_score > 0.6
-               else "minor deviations within acceptable range")
+            + (f"FINTRAC indicators detected: {', '.join(indicators)}" if indicators
+               else "activity within normal behavioral range")
         )
         append_step("deviation_calculation", "Running deviation analysis", 1, deviation_detail)
-
-        # Recompute profile (Layer 1)
-        compute_profile(client_id, db)
-        db.commit()
 
         # ── Layer 2 steps ────────────────────────────────────────────────────
         append_step("contextual_reasoning", "LLM contextual reasoning: evaluating seasonal and historical context", 2,
                     "Checking RRSP season, prior large deposits, income consistency, counterparty novelty")
 
-        # Run Layer 2
-        new_restriction = determine_response(client_id, "simulate", db)
+        # Determine trigger type from computed indicators for appropriate fallback
+        if "rapid_crypto_conversion" in indicators and "structuring" in indicators:
+            trigger = "structuring_crypto_layering"
+        elif "rapid_crypto_conversion" in indicators or "layering" in indicators:
+            trigger = "crypto_layering"
+        elif "structuring" in indicators and profile_risk_score >= 0.75:
+            trigger = "structuring_crypto_layering"
+        elif "structuring" in indicators:
+            trigger = "minor_structuring"
+        elif "income_inconsistency" in indicators and ("new_counterparty_burst" in indicators or "rapid_crypto_conversion" in indicators):
+            trigger = "mule_pattern"
+        elif "new_counterparty_burst" in indicators:
+            trigger = "mule_pattern"
+        elif "income_inconsistency" in indicators:
+            trigger = "income_inconsistency"
+        else:
+            trigger = "salary_spike"  # auto-resolve: no significant indicators
+
+        # Run Layer 2 — investigation already exists, don't open another one
+        new_restriction = determine_response(client_id, trigger, db, enqueue_investigation=False)
         db.commit()
-        new_level = new_restriction.level if new_restriction else restriction_level
+        new_level = new_restriction.level if new_restriction else 0
 
         append_step("level_assignment", f"Graduated restriction level: Level {new_level} assigned", 2,
                     f"Composite deviation + contextual reasoning → Level {new_level} response")
@@ -401,8 +424,6 @@ def simulate_pipeline(
     if not client:
         raise HTTPException(status_code=404, detail="Client not found")
 
-    profile = db.query(BehavioralProfile).filter(BehavioralProfile.client_id == client_id).first()
-
     # Create the investigation record immediately
     investigation = Investigation(
         id=str(uuid.uuid4()),
@@ -423,18 +444,11 @@ def simulate_pipeline(
     ))
     db.commit()
 
-    restriction_level = max(
-        (r.level for r in client.restrictions if r.is_active), default=0
-    )
-
     background_tasks.add_task(
         _run_simulate_pipeline,
         investigation_id=investigation.id,
         client_id=client_id,
         client_name=client.name,
-        profile_archetype=profile.archetype if profile else "new_investor",
-        profile_risk_score=profile.overall_risk_score if profile else 0.0,
-        restriction_level=restriction_level,
     )
 
     return SimulateResponse(

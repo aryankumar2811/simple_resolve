@@ -1,354 +1,260 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
 import { api, ClientSummary, DashboardSummary } from '@/lib/api'
 import { useSimulation } from '@/context/SimulationContext'
+import SimulationModal from '@/components/SimulationModal'
 
 const LEVEL_BADGE: Record<number, string> = {
-  0: 'bg-emerald-900/40 text-emerald-400 border border-emerald-800/40',
-  1: 'bg-blue-900/40 text-blue-400 border border-blue-800/40',
-  2: 'bg-amber-900/40 text-amber-400 border border-amber-800/40',
-  3: 'bg-orange-900/40 text-orange-400 border border-orange-800/40',
-  4: 'bg-red-900/40 text-red-400 border border-red-800/40',
+  0: 'bg-emerald-100 text-emerald-700 border border-emerald-200',
+  1: 'bg-blue-100 text-blue-700 border border-blue-200',
+  2: 'bg-amber-100 text-amber-700 border border-amber-200',
+  3: 'bg-orange-100 text-orange-700 border border-orange-200',
+  4: 'bg-red-100 text-red-700 border border-red-200',
 }
 
 const LEVEL_LABEL: Record<number, string> = {
-  0: 'Clear', 1: 'Monitor', 2: 'Guardrail', 3: 'Restricted', 4: 'Frozen',
+  0: 'L0 — Clear', 1: 'L1 — Monitor', 2: 'L2 — Guardrail',
+  3: 'L3 — Restricted', 4: 'L4 — Frozen',
 }
 
 const ARCHETYPE_LABEL: Record<string, string> = {
-  payroll_depositor: 'Payroll',
-  active_trader: 'Trader',
+  payroll_depositor: 'Payroll Depositor',
+  active_trader: 'Active Trader',
   new_investor: 'New Investor',
-  seasonal_spiker: 'Seasonal',
-  mule_like: 'High Risk',
+  seasonal_spiker: 'Seasonal Spiker',
+  mule_like: 'Mule-Like',
 }
 
 function MetricCard({
-  label,
-  value,
-  sub,
-  accent = false,
-  warn = false,
+  label, value, sub, accent = false, warn = false,
 }: {
-  label: string
-  value: string | number
-  sub?: string
-  accent?: boolean
-  warn?: boolean
+  label: string; value: string | number; sub?: string; accent?: boolean; warn?: boolean;
 }) {
   return (
-    <div
-      className="rounded-xl p-5"
-      style={{
-        background: '#111119',
-        border: `1px solid ${warn ? 'rgba(251,146,60,0.25)' : accent ? 'rgba(99,102,241,0.25)' : 'rgba(255,255,255,0.06)'}`,
-      }}
-    >
+    <div className={`rounded-lg p-5 bg-white border ${warn ? 'border-orange-200' : accent ? 'border-indigo-200' : 'border-slate-200'}`}>
       <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-2">{label}</p>
-      <p
-        className="text-3xl font-bold"
-        style={{ color: warn ? '#fb923c' : accent ? '#818cf8' : '#f1f5f9' }}
-      >
+      <p className={`text-3xl font-bold ${warn ? 'text-orange-600' : accent ? 'text-indigo-600' : 'text-slate-900'}`}>
         {value}
       </p>
-      {sub && <p className="text-xs text-slate-600 mt-1">{sub}</p>}
+      {sub && <p className="text-xs text-slate-500 mt-1">{sub}</p>}
     </div>
   )
 }
 
-function SimulateButton({ client }: { client: ClientSummary }) {
-  const { startSimulation, status, clientId } = useSimulation()
-  const isThisClient = clientId === client.id
-  const isRunning = isThisClient && status === 'running'
-
+function RiskBar({ score }: { score: number }) {
+  const pct = Math.round(score * 100)
+  const color = score >= 0.75 ? 'bg-orange-500' : score >= 0.60 ? 'bg-amber-400' : score >= 0.40 ? 'bg-blue-400' : 'bg-emerald-400'
   return (
-    <button
-      onClick={() => startSimulation(client.id, client.name)}
-      disabled={status === 'running'}
-      className="text-xs font-semibold px-3 py-1.5 rounded transition-all"
-      style={{
-        background: isRunning
-          ? 'rgba(99,102,241,0.2)'
-          : 'rgba(99,102,241,0.12)',
-        color: status === 'running' && !isThisClient ? '#475569' : '#818cf8',
-        border: '1px solid rgba(99,102,241,0.25)',
-        cursor: status === 'running' ? 'not-allowed' : 'pointer',
-        minWidth: 80,
-      }}
-    >
-      {isRunning ? (
-        <span className="flex items-center gap-1.5">
-          <svg className="animate-spin h-3 w-3" viewBox="0 0 24 24" fill="none">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-          </svg>
-          Running
-        </span>
-      ) : 'Simulate'}
-    </button>
+    <div className="flex items-center gap-2">
+      <div className="flex-1 bg-slate-100 rounded-full h-1.5">
+        <div className={`h-1.5 rounded-full ${color}`} style={{ width: `${pct}%` }} />
+      </div>
+      <span className="text-xs font-mono text-slate-500 w-8 text-right">{score.toFixed(2)}</span>
+    </div>
   )
 }
 
 export default function DashboardPage() {
   const [dashboard, setDashboard] = useState<DashboardSummary | null>(null)
   const [clients, setClients] = useState<ClientSummary[]>([])
-  const [error, setError] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const { startSimulation, isRunning, isModalOpen } = useSimulation()
 
-  useEffect(() => {
-    Promise.all([api.getDashboard(), api.getClients()])
-      .then(([d, c]) => {
-        setDashboard(d)
-        setClients(c)
-      })
-      .catch(() => setError(true))
+  const fetchData = useCallback(async () => {
+    try {
+      const [dashData, clientData] = await Promise.all([
+        api.getDashboard(),
+        api.getClients(),
+      ])
+      setDashboard(dashData)
+      setClients(clientData)
+    } catch (err) {
+      console.error(err)
+    } finally {
+      setLoading(false)
+    }
   }, [])
 
-  if (error) {
+  useEffect(() => {
+    fetchData()
+  }, [fetchData])
+
+  const handleSimulate = useCallback(async () => {
+    const clientList = clients.map(c => ({ clientId: c.id, clientName: c.name }))
+    await startSimulation(clientList, fetchData)
+  }, [clients, startSimulation, fetchData])
+
+  if (loading) {
     return (
-      <div className="text-center py-20" style={{ color: '#64748b' }}>
-        <p className="text-lg font-semibold text-slate-300">Backend not reachable</p>
-        <p className="text-sm mt-1">Start the FastAPI server and seed the database first.</p>
-        <pre
-          className="text-xs mt-4 inline-block px-4 py-3 rounded"
-          style={{ background: '#111119', border: '1px solid rgba(255,255,255,0.06)', color: '#94a3b8' }}
-        >
-          {`cd backend && uvicorn app.main:app --reload\npython -m app.seed.seed_data`}
-        </pre>
+      <div className="flex items-center justify-center h-64">
+        <div className="text-slate-400 text-sm">Loading dashboard...</div>
       </div>
     )
   }
 
-  const restrictedCount = dashboard
-    ? Object.entries(dashboard.clients_by_restriction_level)
-        .filter(([k]) => k !== '0')
-        .reduce((s, [, v]) => s + v, 0)
-    : 0
-
   return (
-    <div className="space-y-8" style={{ color: '#e2e8f0' }}>
+    <div className="space-y-8">
+      <SimulationModal />
+
       {/* Header */}
-      <div className="flex items-start justify-between flex-wrap gap-4">
-        <div>
-          <h1 className="text-2xl font-bold" style={{ color: '#f8fafc' }}>
-            Compliance Dashboard
-          </h1>
-          <p className="text-sm mt-1" style={{ color: '#64748b' }}>
-            Real-time AML monitoring across 3.2M+ accounts
-          </p>
-        </div>
-        <Link
-          href="/"
-          className="text-xs px-3 py-1.5 rounded"
-          style={{
-            border: '1px solid rgba(99,102,241,0.2)',
-            color: '#6366f1',
-            textDecoration: 'none',
-          }}
-        >
-          ← System Overview
-        </Link>
+      <div>
+        <h1 className="text-2xl font-bold text-slate-900">AML Operations Dashboard</h1>
+        <p className="text-sm text-slate-500 mt-1">
+          Real-time behavioral risk monitoring across all monitored accounts.
+        </p>
       </div>
 
-      {/* Scale metrics */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-        <MetricCard label="Monitored Accounts" value="3.2M" sub="active accounts" accent />
-        <MetricCard label="Risk Events Today" value="1,847" sub="auto-processed" />
-        <MetricCard
-          label="Open Investigations"
-          value={dashboard ? dashboard.open_investigations : '—'}
-          sub="in pipeline"
-          warn={!!(dashboard && dashboard.open_investigations > 0)}
-        />
-        <MetricCard
-          label="STR Drafts Pending"
-          value={dashboard ? dashboard.str_drafts_pending : '—'}
-          sub="human review"
-          warn={!!(dashboard && dashboard.str_drafts_pending > 0)}
-        />
-        <MetricCard
-          label="STRs Filed"
-          value={dashboard ? dashboard.strs_filed_this_month : '—'}
-          sub="this month"
-        />
-        <MetricCard label="Auto-Resolved" value="94.7%" sub="Level 0→1→0" />
+      {/* Platform-scale metrics (static numbers represent production scale) */}
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+        <MetricCard label="Monitored Accounts" value="3.2M" sub="Platform scale" />
+        <MetricCard label="Risk Events Today" value="1,847" sub="Across all clients" warn />
+        <MetricCard label="Open Investigations" value={dashboard?.open_investigations ?? '—'} sub="Require review" accent />
+        <MetricCard label="STR Drafts Pending" value={dashboard?.str_drafts_pending ?? '—'} sub="Awaiting analyst" warn />
+        <MetricCard label="STRs Filed / Month" value={dashboard?.strs_filed_this_month ?? '—'} sub="FINTRAC submissions" />
+        <MetricCard label="Auto-Resolved" value="94.7%" sub="L0–L1 escalations" />
       </div>
 
-      {/* Restriction level breakdown */}
-      {dashboard && (
-        <div
-          className="rounded-xl p-5"
-          style={{ background: '#111119', border: '1px solid rgba(255,255,255,0.06)' }}
-        >
-          <h2 className="text-sm font-semibold mb-4" style={{ color: '#94a3b8' }}>
-            Accounts by Restriction Level
-          </h2>
-          <div className="flex gap-3 flex-wrap">
-            {Object.entries(dashboard.clients_by_restriction_level).map(([level, count]) => (
-              <div
-                key={level}
-                className={`px-3 py-1.5 rounded-full text-xs font-semibold ${LEVEL_BADGE[+level] || ''}`}
-              >
-                L{level} — {LEVEL_LABEL[+level] ?? `Level ${level}`} &nbsp;·&nbsp; {count}
-              </div>
-            ))}
+      {/* Client risk register */}
+      <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+        <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
+          <div>
+            <h2 className="text-sm font-semibold text-slate-900">Client Risk Register</h2>
+            <p className="text-xs text-slate-500 mt-0.5">
+              {clients.length} monitored clients — {clients.filter(c => c.active_restriction_level > 0).length} with active restrictions
+            </p>
           </div>
-        </div>
-      )}
-
-      {/* Client table */}
-      <div
-        className="rounded-xl overflow-hidden"
-        style={{ border: '1px solid rgba(255,255,255,0.06)', background: '#111119' }}
-      >
-        <div
-          className="px-5 py-3 flex items-center justify-between"
-          style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}
-        >
-          <h2 className="text-sm font-semibold" style={{ color: '#94a3b8' }}>
-            Client Risk Register
-          </h2>
-          <span className="text-xs" style={{ color: '#475569' }}>
-            {clients.length} clients · Click Simulate to run the full AI pipeline
-          </span>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={handleSimulate}
+              disabled={isRunning}
+              className="flex items-center gap-2 bg-indigo-600 text-white text-sm font-medium px-4 py-2 rounded-md hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              {isRunning ? (
+                <>
+                  <svg className="animate-spin h-3.5 w-3.5" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  </svg>
+                  Running...
+                </>
+              ) : (
+                <>
+                  <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  Run Simulation
+                </>
+              )}
+            </button>
+            <span className="text-xs text-slate-400 max-w-[200px] leading-tight">
+              In production, this pipeline runs automatically on every transaction event.
+            </span>
+          </div>
         </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full">
+          <table className="w-full text-sm">
             <thead>
-              <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                {['Client', 'Restriction', 'Archetype', 'Risk Score', 'Indicators', 'Simulate'].map((h) => (
-                  <th
-                    key={h}
-                    className="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wide"
-                    style={{ color: '#475569' }}
-                  >
-                    {h}
-                  </th>
-                ))}
+              <tr className="bg-slate-50 border-b border-slate-200">
+                <th className="text-left px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Client</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">KYC</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Products</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Risk Level</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Archetype</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide w-40">Risk Score</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Status</th>
               </tr>
             </thead>
-            <tbody>
-              {clients.length === 0 && (
-                <tr>
-                  <td colSpan={6} className="px-4 py-10 text-center text-sm" style={{ color: '#475569' }}>
-                    Loading clients…
-                  </td>
-                </tr>
-              )}
-              {clients.map((client) => (
-                <tr
-                  key={client.id}
-                  style={{ borderBottom: '1px solid rgba(255,255,255,0.03)' }}
-                  className="hover:bg-white/[0.02] transition-colors"
-                >
-                  <td className="px-4 py-3">
-                    <Link
-                      href={`/clients/${client.id}`}
-                      className="font-medium text-sm hover:underline"
-                      style={{ color: '#818cf8', textDecoration: 'none' }}
-                    >
-                      {client.name}
-                    </Link>
-                    <p className="text-xs mt-0.5" style={{ color: '#475569' }}>{client.occupation}</p>
-                  </td>
+            <tbody className="divide-y divide-slate-100">
+              {clients.map(client => {
+                const hasProfile = client.overall_risk_score > 0 || client.active_restriction_level > 0
+                const hasRestriction = client.active_restriction_level > 0
+                const level = client.active_restriction_level
 
-                  <td className="px-4 py-3">
-                    <span
-                      className={`text-xs font-semibold px-2 py-0.5 rounded-full ${LEVEL_BADGE[client.active_restriction_level]}`}
-                    >
-                      L{client.active_restriction_level} — {LEVEL_LABEL[client.active_restriction_level]}
-                    </span>
-                  </td>
-
-                  <td className="px-4 py-3 text-xs" style={{ color: '#64748b' }}>
-                    {ARCHETYPE_LABEL[client.archetype] ?? client.archetype.replace(/_/g, ' ')}
-                  </td>
-
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-2">
-                      <div
-                        className="h-1.5 rounded-full overflow-hidden"
-                        style={{ width: 72, background: 'rgba(255,255,255,0.08)' }}
-                      >
-                        <div
-                          className="h-full rounded-full"
-                          style={{
-                            width: `${Math.min(100, client.overall_risk_score * 100)}%`,
-                            background: client.overall_risk_score > 0.75
-                              ? '#ef4444'
-                              : client.overall_risk_score > 0.5
-                                ? '#f97316'
-                                : client.overall_risk_score > 0.3
-                                  ? '#eab308'
-                                  : '#22c55e',
-                          }}
-                        />
+                return (
+                  <tr key={client.id} className="hover:bg-slate-50 transition-colors">
+                    <td className="px-5 py-3.5">
+                      <Link href={`/clients/${client.id}`} className="font-medium text-indigo-600 hover:text-indigo-800 hover:underline">
+                        {client.name}
+                      </Link>
+                    </td>
+                    <td className="px-4 py-3.5">
+                      <span className="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded capitalize">
+                        {client.kyc_level}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3.5">
+                      <div className="flex flex-wrap gap-1">
+                        {client.products_held.map(p => (
+                          <span key={p} className="text-xs bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded capitalize">
+                            {p}
+                          </span>
+                        ))}
                       </div>
-                      <span className="text-xs font-mono" style={{ color: '#94a3b8' }}>
-                        {(client.overall_risk_score * 100).toFixed(0)}%
-                      </span>
-                    </div>
-                  </td>
-
-                  {/* Placeholder for indicators detected count */}
-                  <td className="px-4 py-3">
-                    {client.active_restriction_level >= 2 ? (
-                      <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: 'rgba(239,68,68,0.15)', color: '#f87171' }}>
-                        Active
-                      </span>
-                    ) : (
-                      <span className="text-xs" style={{ color: '#334155' }}>—</span>
-                    )}
-                  </td>
-
-                  <td className="px-4 py-3">
-                    <SimulateButton client={client} />
-                  </td>
-                </tr>
-              ))}
+                    </td>
+                    <td className="px-4 py-3.5">
+                      {hasProfile ? (
+                        <span className={`text-xs font-semibold px-2 py-0.5 rounded ${LEVEL_BADGE[level] || LEVEL_BADGE[0]}`}>
+                          {LEVEL_LABEL[level] || `L${level}`}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-slate-400 font-medium">Not assessed</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3.5 text-xs text-slate-600">
+                      {hasProfile && client.archetype
+                        ? (ARCHETYPE_LABEL[client.archetype] || client.archetype.replace(/_/g, ' '))
+                        : <span className="text-slate-400">—</span>
+                      }
+                    </td>
+                    <td className="px-4 py-3.5 w-40">
+                      {hasProfile
+                        ? <RiskBar score={client.overall_risk_score} />
+                        : <span className="text-slate-400 text-xs">—</span>
+                      }
+                    </td>
+                    <td className="px-4 py-3.5">
+                      {!hasProfile ? (
+                        <span className="text-xs text-slate-400">Pending simulation</span>
+                      ) : !hasRestriction ? (
+                        <span className="text-xs text-emerald-600 font-medium">Active — Unrestricted</span>
+                      ) : level >= 3 ? (
+                        <Link href={`/clients/${client.id}`} className="text-xs text-orange-600 font-medium hover:underline">
+                          Under Investigation →
+                        </Link>
+                      ) : (
+                        <span className="text-xs text-amber-600 font-medium">Restricted</span>
+                      )}
+                    </td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         </div>
       </div>
 
-      {/* Activity feed */}
-      {dashboard && (
-        <div
-          className="rounded-xl"
-          style={{ border: '1px solid rgba(255,255,255,0.06)', background: '#111119' }}
-        >
-          <div
-            className="px-5 py-3"
-            style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}
-          >
-            <h2 className="text-sm font-semibold" style={{ color: '#94a3b8' }}>Recent Activity</h2>
+      {/* Recent Activity */}
+      {dashboard?.recent_activity && dashboard.recent_activity.length > 0 && (
+        <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+          <div className="px-5 py-4 border-b border-slate-200">
+            <h2 className="text-sm font-semibold text-slate-900">Recent Activity</h2>
           </div>
-          <div className="divide-y divide-white/5 max-h-72 overflow-y-auto">
-            {dashboard.recent_activity.map((entry) => (
+          <div className="divide-y divide-slate-100 max-h-72 overflow-y-auto">
+            {dashboard.recent_activity.map((entry: any) => (
               <div key={entry.id} className="flex items-start gap-3 px-5 py-2.5 text-sm">
-                <span className="text-xs font-mono pt-0.5 whitespace-nowrap shrink-0" style={{ color: '#475569' }}>
-                  {new Date(entry.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                <span className="text-xs font-mono pt-0.5 whitespace-nowrap shrink-0 text-slate-400">
+                  {new Date(entry.timestamp).toLocaleTimeString()}
                 </span>
-                <span
-                  className="text-xs px-1.5 py-0.5 rounded font-mono shrink-0"
-                  style={{ background: 'rgba(99,102,241,0.1)', color: '#818cf8' }}
-                >
-                  {entry.entity_type}
+                <span className="text-slate-700 flex-1 text-xs">
+                  <span className="font-medium text-slate-900">{entry.actor}</span>
+                  {' — '}{entry.action.replace(/_/g, ' ')}
                 </span>
-                <span className="flex-1 text-xs" style={{ color: '#94a3b8' }}>
-                  {entry.action.replace(/_/g, ' ')}
-                </span>
-                <span className="text-xs shrink-0" style={{ color: '#334155' }}>
-                  {entry.actor}
-                </span>
+                <span className="text-xs text-slate-400 capitalize shrink-0">{entry.entity_type}</span>
               </div>
             ))}
-            {dashboard.recent_activity.length === 0 && (
-              <div className="px-5 py-8 text-center text-sm" style={{ color: '#475569' }}>
-                No activity yet.
-              </div>
-            )}
           </div>
         </div>
       )}

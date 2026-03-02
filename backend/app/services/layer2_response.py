@@ -31,6 +31,71 @@ logger = logging.getLogger(__name__)
 # ── Fallback responses (used when Gemini is unavailable) ─────────────────────
 
 _FALLBACKS: dict[str, dict] = {
+    # ── Auto-resolve: one-time salary spike from known employer ──────────────
+    "salary_spike": {
+        "level": 0,
+        "restricted_capabilities": [],
+        "allowed_capabilities": ["all_standard"],
+        "client_message": (
+            "Our system flagged an unusual deposit but determined it matches your "
+            "regular employer. No action required — your account is fully accessible."
+        ),
+        "reasoning": (
+            "Auto-resolved: deposit originates from a known employer counterparty. "
+            "Pattern is consistent with a one-time bonus or RRSP contribution. "
+            "No restrictions applied."
+        ),
+    },
+    # ── Minor freeze: structuring-like pattern but below L3 threshold ────────
+    "minor_structuring": {
+        "level": 2,
+        "restricted_capabilities": ["e_transfer_in_large_unverified", "e_transfer_out_new"],
+        "allowed_capabilities": [
+            "chequing_deposit", "e_transfer_in_known", "bill_payment",
+            "investment_buy", "investment_sell",
+        ],
+        "client_message": (
+            "We've added a verification step for large e-transfers from new sources. "
+            "All other account features are working normally."
+        ),
+        "reasoning": (
+            "Structuring-like pattern detected but confidence below investigation threshold. "
+            "Step-up auth applied on e-transfers as a guardrail."
+        ),
+    },
+    # ── Mule account: many inbound senders → single crypto outbound ──────────
+    "mule_pattern": {
+        "level": 3,
+        "restricted_capabilities": [
+            "crypto_send_external", "crypto_buy", "e_transfer_out_new",
+        ],
+        "allowed_capabilities": ["chequing_deposit", "bill_payment", "e_transfer_in_known"],
+        "client_message": (
+            "We've temporarily restricted certain outbound transfers pending a "
+            "security review. All deposit and standard payment features remain active."
+        ),
+        "reasoning": (
+            "Mule account pattern: many new inbound senders with rapid outbound crypto consolidation. "
+            "Restricting all outbound crypto and new-counterparty transfers."
+        ),
+    },
+    # ── Coordinated minor participant: linked but lower exposure ─────────────
+    "coordinated_minor": {
+        "level": 2,
+        "restricted_capabilities": ["crypto_send_external"],
+        "allowed_capabilities": [
+            "chequing_deposit", "e_transfer_in", "e_transfer_out_known",
+            "bill_payment", "crypto_buy",
+        ],
+        "client_message": (
+            "We've temporarily paused external crypto transfers as a security precaution. "
+            "All other account features are available."
+        ),
+        "reasoning": (
+            "Account linked to a coordinated wallet cluster but with lower exposure. "
+            "Targeted restriction on external crypto sends only."
+        ),
+    },
     "structuring_crypto_layering": {
         "level": 3,
         "restricted_capabilities": ["crypto_send_external", "crypto_buy", "crypto_sell"],
