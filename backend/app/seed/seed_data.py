@@ -35,6 +35,7 @@ from app.models import (
     STRDraft,
     Transaction,
 )
+from app.services.layer3_orchestrator import run_investigation
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -394,6 +395,17 @@ def _create_profiles(db: Session, clients: dict) -> None:
                 {"indicator": "income_inconsistency",
                  "detected_at": "2026-02-21", "confidence": 0.79},
             ],
+            proactive_actions=[
+                {"timestamp": _dt(14, hour=8, minute=50).isoformat(), "action": "notification_sent",
+                 "label": "Client notified: verification step added for large transfers",
+                 "trigger": "Level 2 guardrail activated", "channel": "push + email", "status": "delivered"},
+                {"timestamp": _dt(14, hour=9, minute=5).isoformat(), "action": "step_up_auth",
+                 "label": "Step-up authentication activated for outbound transfers",
+                 "trigger": "Level 3 escalation — structuring pattern", "channel": "biometric + 2FA", "status": "active"},
+                {"timestamp": _dt(7, hour=10, minute=45).isoformat(), "action": "follow_up_call_scheduled",
+                 "label": "Agent scheduled verification call",
+                 "trigger": "Level 3 restriction applied", "channel": "phone", "status": "completed"},
+            ],
             last_updated=SEED_DATE,
         ),
         BehavioralProfile(
@@ -422,6 +434,17 @@ def _create_profiles(db: Session, clients: dict) -> None:
                 {"indicator": "income_inconsistency",
                  "detected_at": "2026-02-22", "confidence": 0.81},
             ],
+            proactive_actions=[
+                {"timestamp": _dt(18, hour=9, minute=5).isoformat(), "action": "notification_sent",
+                 "label": "Client notified: crypto transfers temporarily paused",
+                 "trigger": "Layering pattern detected", "channel": "push + email", "status": "delivered"},
+                {"timestamp": _dt(18, hour=9, minute=20).isoformat(), "action": "step_up_auth",
+                 "label": "Step-up authentication activated for all crypto operations",
+                 "trigger": "Level 3 escalation — layering chain", "channel": "biometric", "status": "active"},
+                {"timestamp": _dt(6, hour=13, minute=30).isoformat(), "action": "follow_up_call_scheduled",
+                 "label": "Agent scheduled identity verification call",
+                 "trigger": "Level 3 restriction applied", "channel": "phone", "status": "scheduled"},
+            ],
             last_updated=SEED_DATE,
         ),
         BehavioralProfile(
@@ -448,6 +471,14 @@ def _create_profiles(db: Session, clients: dict) -> None:
                 {"indicator": "structuring", "detected_at": "2026-02-15", "confidence": 0.85},
                 {"indicator": "rapid_crypto_conversion",
                  "detected_at": "2026-02-15", "confidence": 0.89},
+            ],
+            proactive_actions=[
+                {"timestamp": _dt(13, hour=10, minute=15).isoformat(), "action": "notification_sent",
+                 "label": "Client notified: crypto transfers paused pending review",
+                 "trigger": "Coordinated wallet cluster detected", "channel": "push + email", "status": "delivered"},
+                {"timestamp": _dt(13, hour=10, minute=30).isoformat(), "action": "step_up_auth",
+                 "label": "Step-up authentication required for all outbound transfers",
+                 "trigger": "Level 3 — coordinated activity", "channel": "2FA", "status": "active"},
             ],
             last_updated=SEED_DATE,
         ),
@@ -476,6 +507,14 @@ def _create_profiles(db: Session, clients: dict) -> None:
                 {"indicator": "rapid_crypto_conversion",
                  "detected_at": "2026-02-16", "confidence": 0.87},
             ],
+            proactive_actions=[
+                {"timestamp": _dt(12, hour=10, minute=5).isoformat(), "action": "notification_sent",
+                 "label": "Client notified: crypto transfers paused pending review",
+                 "trigger": "Coordinated wallet cluster detected", "channel": "push + email", "status": "delivered"},
+                {"timestamp": _dt(12, hour=10, minute=20).isoformat(), "action": "step_up_auth",
+                 "label": "Step-up authentication required for all outbound transfers",
+                 "trigger": "Level 3 — coordinated activity", "channel": "2FA", "status": "active"},
+            ],
             last_updated=SEED_DATE,
         ),
         BehavioralProfile(
@@ -502,6 +541,14 @@ def _create_profiles(db: Session, clients: dict) -> None:
                 {"indicator": "structuring", "detected_at": "2026-02-18", "confidence": 0.86},
                 {"indicator": "rapid_crypto_conversion",
                  "detected_at": "2026-02-18", "confidence": 0.90},
+            ],
+            proactive_actions=[
+                {"timestamp": _dt(10, hour=10, minute=35).isoformat(), "action": "notification_sent",
+                 "label": "Client notified: crypto transfers paused pending review",
+                 "trigger": "Coordinated wallet cluster detected", "channel": "push + email", "status": "delivered"},
+                {"timestamp": _dt(10, hour=10, minute=45).isoformat(), "action": "step_up_auth",
+                 "label": "Step-up authentication required for all outbound transfers",
+                 "trigger": "Level 3 — coordinated activity", "channel": "2FA", "status": "active"},
             ],
             last_updated=SEED_DATE,
         ),
@@ -534,6 +581,15 @@ def _create_profiles(db: Session, clients: dict) -> None:
                  "detected_at": "2026-02-18", "confidence": 0.82},
                 {"indicator": "new_counterparty_burst",
                  "detected_at": "2026-02-23", "confidence": 0.78},
+            ],
+            proactive_actions=[
+                {"timestamp": _dt(10, hour=14, minute=35).isoformat(), "action": "notification_sent",
+                 "label": "Client notified: verification step added for large incoming transfers",
+                 "trigger": "Level 2 guardrail — income inconsistency", "channel": "push + email", "status": "delivered"},
+                {"timestamp": _dt(5, hour=14, minute=35).isoformat(), "action": "info_request_sent",
+                 "label": "Information request sent: source of funds documentation required",
+                 "trigger": "Level 2 guardrail — income inconsistency", "channel": "secure message + email",
+                 "status": "awaiting_response"},
             ],
             last_updated=SEED_DATE,
         ),
@@ -698,6 +754,56 @@ def _create_audit_entries(db: Session, clients: dict) -> None:
     db.flush()
 
 
+# ── Pre-seed investigations ───────────────────────────────────────────────────
+
+def _seed_investigations(db: Session, clients: dict) -> None:
+    """
+    Pre-seed completed investigations for all non-clean clients so the
+    investigations page and client profiles show data on first load.
+    Dana/Eve/Frank are seeded together so cross-client correlation fires.
+    """
+    # Clients that should have investigations (level 3: full pipeline; level 2: fast track)
+    level3_clients = ["bob", "carl", "dana", "eve", "frank"]
+    level2_clients = ["grace"]
+
+    all_inv_clients = level3_clients + level2_clients
+
+    for key in all_inv_clients:
+        c = clients[key]
+        inv = Investigation(
+            id=str(uuid.uuid4()),
+            client_id=c.id,
+            trigger_event={
+                "trigger_type": "automatic",
+                "source": "layer2_response_engine",
+                "notes": "Pre-seeded investigation for demo",
+            },
+            response_level=3 if key in level3_clients else 2,
+            status="open",
+            step_log=[],
+        )
+        db.add(inv)
+        db.add(AuditEntry(
+            id=str(uuid.uuid4()),
+            entity_type="investigation",
+            entity_id=inv.id,
+            action="investigation_auto_triggered",
+            actor="system:layer2_response_engine",
+            timestamp=SEED_DATE - timedelta(days=3),
+            details={"client_name": c.name, "seeded": True},
+        ))
+        db.flush()
+
+        print(f"  Running investigation pipeline for {c.name}...")
+        try:
+            run_investigation(inv.id, db)
+            db.commit()
+            print(f"    Done — status: {db.query(Investigation).get(inv.id).status}")
+        except Exception as exc:
+            db.rollback()
+            print(f"    WARNING: Investigation failed for {c.name}: {exc}")
+
+
 # ── Main entrypoint ───────────────────────────────────────────────────────────
 
 def seed_all(db: Session) -> None:
@@ -728,6 +834,10 @@ def seed_all(db: Session) -> None:
     _create_audit_entries(db, clients)
 
     db.commit()
+
+    print("Running investigation pipeline for flagged clients...")
+    _seed_investigations(db, clients)
+
     print(f"\nSeed complete. {len(clients)} clients created:")
     for key, c in clients.items():
         print(f"  {c.id}  {c.name}")
