@@ -36,6 +36,18 @@ def health_check():
     return {"status": "ok", "service": "SimpleResolve"}
 
 
+@app.post("/seed")
+def run_seed():
+    from app.core.database import SessionLocal
+    from app.seed.seed_data import seed_all
+    db = SessionLocal()
+    try:
+        seed_all(db)
+        return {"status": "ok", "message": "Database seeded"}
+    finally:
+        db.close()
+
+
 # Routers are registered here as each phase is completed
 from app.api import clients, dashboard, investigations, restrictions, transactions  # noqa: E402
 
