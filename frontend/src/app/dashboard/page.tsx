@@ -59,21 +59,19 @@ export default function DashboardPage() {
   const [dashboard, setDashboard] = useState<DashboardSummary | null>(null)
   const [clients, setClients] = useState<ClientSummary[]>([])
   const [loading, setLoading] = useState(true)
+  const [seeding, setSeeding] = useState(false)
   const { startSimulation, isRunning, isModalOpen } = useSimulation()
 
   const fetchData = useCallback(async () => {
-    try {
-      const [dashData, clientData] = await Promise.all([
-        api.getDashboard(),
-        api.getClients(),
-      ])
-      setDashboard(dashData)
-      setClients(clientData)
-    } catch (err) {
-      console.error(err)
-    } finally {
-      setLoading(false)
-    }
+    const [dashResult, clientResult] = await Promise.allSettled([
+      api.getDashboard(),
+      api.getClients(),
+    ])
+    if (dashResult.status === 'fulfilled') setDashboard(dashResult.value)
+    else console.error('Dashboard fetch failed:', dashResult.reason)
+    if (clientResult.status === 'fulfilled') setClients(clientResult.value)
+    else console.error('Clients fetch failed:', clientResult.reason)
+    setLoading(false)
   }, [])
 
   useEffect(() => {
@@ -84,6 +82,19 @@ export default function DashboardPage() {
     const clientList = clients.map(c => ({ clientId: c.id, clientName: c.name }))
     await startSimulation(clientList, fetchData)
   }, [clients, startSimulation, fetchData])
+
+  const handleReseed = useCallback(async () => {
+    setSeeding(true)
+    try {
+      const BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000'
+      await fetch(`${BASE}/seed`, { method: 'POST' })
+      await fetchData()
+    } catch (err) {
+      console.error('Reseed failed:', err)
+    } finally {
+      setSeeding(false)
+    }
+  }, [fetchData])
 
   if (loading) {
     return (
@@ -128,6 +139,28 @@ export default function DashboardPage() {
             </p>
           </div>
           <div className="flex items-center gap-3">
+            <button
+              onClick={handleReseed}
+              disabled={seeding || isRunning}
+              className="flex items-center gap-2 bg-slate-100 text-slate-700 text-sm font-medium px-4 py-2 rounded-md hover:bg-slate-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors border border-slate-200"
+            >
+              {seeding ? (
+                <>
+                  <svg className="animate-spin h-3.5 w-3.5" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  </svg>
+                  Seeding...
+                </>
+              ) : (
+                <>
+                  <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                  Reseed DB
+                </>
+              )}
+            </button>
             <button
               onClick={handleSimulate}
               disabled={isRunning}
