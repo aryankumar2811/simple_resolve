@@ -270,8 +270,13 @@ def _run_simulate_pipeline(
                                          "indicator_count": len(indicators)}}))
 
         # ── Layer 2 steps ────────────────────────────────────────────────────
-        append_step("contextual_reasoning", "LLM contextual reasoning: evaluating seasonal and historical context", 2,
-                    "Checking RRSP season, prior large deposits, income consistency, counterparty novelty")
+        append_step("contextual_reasoning", "AI contextual reasoning: evaluating seasonal and historical context", 2,
+                    json.dumps({"summary": "Evaluating RRSP season, prior large deposits, income consistency, and counterparty novelty",
+                                "data": {"model": "claude-sonnet-4-6",
+                                         "checks": ["RRSP contribution season", "prior large deposit history",
+                                                     "income consistency ratio", "counterparty novelty score"],
+                                         "indicators_input": indicators,
+                                         "risk_score_input": round(profile_risk_score, 3)}}))
 
         # Determine trigger type from computed indicators for appropriate fallback
         if "rapid_crypto_conversion" in indicators and "structuring" in indicators:
@@ -298,8 +303,23 @@ def _run_simulate_pipeline(
         db.commit()
         new_level = new_restriction.level if new_restriction else 0
 
+        level_descriptions = {
+            0: "No restrictions — activity within normal range",
+            1: "Enhanced monitoring — passive observation only",
+            2: "Guardrail active — step-up verification for flagged operations",
+            3: "Restricted — capabilities limited, investigation initiated",
+            4: "Frozen — all outbound transactions suspended",
+        }
+        restricted_caps = []
+        if new_restriction:
+            restricted_caps = new_restriction.restricted_capabilities or []
         append_step("level_assignment", f"Graduated restriction level: Level {new_level} assigned", 2,
-                    f"Composite deviation + contextual reasoning → Level {new_level} response")
+                    json.dumps({"summary": f"Composite deviation + contextual reasoning → Level {new_level}: {level_descriptions.get(new_level, 'Unknown')}",
+                                "data": {"level": new_level,
+                                         "trigger_type": trigger,
+                                         "description": level_descriptions.get(new_level, "Unknown"),
+                                         "restricted": restricted_caps if restricted_caps else ["none"],
+                                         "risk_score": round(profile_risk_score, 3)}}))
 
         if new_level >= 2:
             client = db.query(Client).filter(Client.id == client_id).first()
@@ -309,7 +329,11 @@ def _run_simulate_pipeline(
             )
             append_step("notification_sent",
                         "Client notified: security verification added for large transfers", 2,
-                        f"Push + email sent to {client_name}: \"{msg}\"",
+                        json.dumps({"summary": f"Push + email sent to {client_name}",
+                                    "data": {"channel": "push + email",
+                                             "message": msg,
+                                             "trigger": f"Level {new_level} guardrail activated",
+                                             "client": client_name}}),
                         "notification_sent")
 
             # Save to proactive_actions
@@ -330,12 +354,20 @@ def _run_simulate_pipeline(
         if new_level >= 3:
             append_step("guardrail_intercept",
                         "Step-up authentication activated for outbound transfers", 2,
-                        "Biometric or 2FA required for crypto purchases and outbound transfers above $500",
+                        json.dumps({"summary": "Biometric or 2FA required for crypto purchases and outbound transfers above $500",
+                                    "data": {"blocked_processes": restricted_caps if restricted_caps else ["crypto_send_external", "e_transfer_out_new_recipient"],
+                                             "auth_required": "biometric or 2FA",
+                                             "threshold": "$500",
+                                             "still_allowed": ["bill_payment", "internal_transfer", "payroll_deposit"]}}),
                         "step_up_auth")
 
             append_step("re_evaluation",
                         "Re-evaluation after guardrail intercept — pattern confirmed", 2,
-                        "Fiat→crypto conversion pattern detected; behavioral escalation confirmed")
+                        json.dumps({"summary": "Behavioral escalation confirmed — pattern persists after guardrail application",
+                                    "data": {"pattern_type": trigger,
+                                             "indicators_confirmed": indicators,
+                                             "escalation": "Layer 3 investigation initiated",
+                                             "confidence": round(profile_risk_score * 100, 1)}}))
 
             # Save to proactive_actions
             profile = db.query(BehavioralProfile).filter(BehavioralProfile.client_id == client_id).first()
@@ -355,7 +387,15 @@ def _run_simulate_pipeline(
 
             append_step("follow_up_call_scheduled",
                         f"Agent scheduled verification call for +2 business days", 2,
-                        f"Reference: CASE-{investigation_id[:8].upper()}. Duration: 15 min. Agent will request source-of-funds documentation.",
+                        json.dumps({"summary": f"Verification call scheduled — agent will request source-of-funds documentation",
+                                    "data": {"reference": f"CASE-{investigation_id[:8].upper()}",
+                                             "duration": "15 minutes",
+                                             "channel": "phone",
+                                             "purpose": "Source-of-funds documentation request",
+                                             "scheduled_date": call_date,
+                                             "questions": ["Verify identity of recent counterparties",
+                                                           "Request supporting documents for flagged transactions",
+                                                           "Confirm business or employment relationship"]}}),
                         "follow_up_call_scheduled")
 
         elif new_level == 2:
@@ -377,7 +417,14 @@ def _run_simulate_pipeline(
             deadline = (datetime.utcnow() + timedelta(days=5)).strftime("%B %d, %Y")
             append_step("info_request_sent",
                         "Information request sent: source of funds documentation required", 2,
-                        f"Client has until {deadline} to provide supporting documentation. Case remains open until response received.",
+                        json.dumps({"summary": f"Client has until {deadline} to provide supporting documentation",
+                                    "data": {"deadline": deadline,
+                                             "channel": "secure message + email",
+                                             "documents_requested": ["Source of funds documentation",
+                                                                      "Employment or business verification",
+                                                                      "Explanation for flagged transactions"],
+                                             "escalation_if_no_response": "Restrictions may escalate to Level 3",
+                                             "status": "awaiting_response"}}),
                         "info_request_sent")
 
         # ── Layer 3 (only if level >= 3) ────────────────────────────────────
@@ -400,11 +447,21 @@ def _run_simulate_pipeline(
                 db.commit()
 
             if new_level == 0:
-                append_step("complete", "Analysis complete — no action required (Level 0)", 2,
-                            "Activity consistent with client baseline. No restrictions applied.")
+                append_step("complete", "Analysis complete — auto-resolved (Level 0)", 2,
+                            json.dumps({"summary": "Activity consistent with client baseline. No restrictions applied.",
+                                        "data": {"result": "auto-resolved",
+                                                 "level": 0,
+                                                 "risk_score": round(profile_risk_score, 3),
+                                                 "archetype": profile_archetype,
+                                                 "action": "No restrictions. Normal monitoring continues."}}))
             else:
                 append_step("complete", f"Analysis complete — Level {new_level} monitoring active", 2,
-                            f"Graduated response applied. Client at Level {new_level}. Monitoring enhanced.")
+                            json.dumps({"summary": f"Graduated response applied. Client at Level {new_level}. Monitoring enhanced.",
+                                        "data": {"result": f"Level {new_level} active",
+                                                 "level": new_level,
+                                                 "risk_score": round(profile_risk_score, 3),
+                                                 "restricted": restricted_caps if restricted_caps else ["enhanced monitoring"],
+                                                 "next_steps": "Client notified. Documentation requested."}}))
 
         # Final "complete" step
         inv = db.query(Investigation).filter(Investigation.id == investigation_id).first()

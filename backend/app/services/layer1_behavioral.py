@@ -198,6 +198,93 @@ def _classify_archetype(
     return "seasonal_spiker", trajectory
 
 
+# ── Historical risk backfill ──────────────────────────────────────────────────
+
+def _backfill_risk_history(
+    all_txns: list, stated_income: float, now: datetime
+) -> list[dict]:
+    """
+    Generate 30 days of historical risk scores from actual transaction data.
+    For each day, compute a simplified risk score using transactions up to that
+    date so the frontend chart shows a realistic trend on first simulation.
+    """
+    history = []
+    for days_back in range(29, 0, -1):
+        day = now - timedelta(days=days_back)
+        day_str = day.strftime("%Y-%m-%d")
+
+        # Transactions visible as of this day
+        txns_so_far = [t for t in all_txns if t.timestamp <= day]
+        if not txns_so_far:
+            continue
+
+        # 7-day window for structuring / counterparty burst
+        w7 = day - timedelta(days=7)
+        recent_7d = [t for t in txns_so_far if t.timestamp >= w7]
+
+        deposits_7d = [
+            t for t in recent_7d
+            if t.type in ("e_transfer_in", "deposit", "crypto_receive")
+        ]
+
+        # Structuring signal
+        near_threshold = [
+            t for t in deposits_7d
+            if REPORTING_THRESHOLD * (1 - STRUCTURING_BAND) <= t.amount < REPORTING_THRESHOLD
+        ]
+        struct = (
+            min(0.95, 0.75 + len(near_threshold) * 0.05)
+            if len(near_threshold) >= 3
+            else 0.70 if len(near_threshold) == 2
+            else 0.35 if len(near_threshold) == 1
+            else 0.0
+        )
+
+        # Rapid crypto conversion
+        crypto_sends = [t for t in recent_7d if t.type == "crypto_send"]
+        fiat_deps = [t for t in recent_7d if t.type in ("e_transfer_in", "deposit")]
+        crypto = 0.0
+        for s in crypto_sends:
+            for d in fiat_deps:
+                if abs((s.timestamp - d.timestamp).total_seconds()) / 3600 <= 4:
+                    crypto = 0.92
+                    break
+            if crypto > 0:
+                break
+
+        # Income inconsistency (30-day window)
+        w30 = day - timedelta(days=30)
+        inflow_30 = sum(
+            t.amount for t in txns_so_far
+            if t.timestamp >= w30
+            and t.type in ("e_transfer_in", "deposit", "crypto_receive")
+        )
+        monthly = stated_income / 12 if stated_income > 0 else 0
+        income = (
+            min(0.95, 0.55 + (inflow_30 / monthly) * 0.06)
+            if monthly > 0 and inflow_30 / monthly > 1.5
+            else 0.0
+        )
+
+        # New counterparty burst
+        old_cps = {
+            t.counterparty_name
+            for t in txns_so_far
+            if t.timestamp < w7 and t.counterparty_name
+        }
+        new_cps = {
+            t.counterparty_name
+            for t in recent_7d
+            if t.counterparty_name and t.counterparty_name not in old_cps
+        }
+        cp_burst = 0.85 if len(new_cps) >= 3 else 0.60 if len(new_cps) == 2 else 0.0
+
+        daily_score = round(max(struct, crypto, income, cp_burst), 3)
+        history.append({"date": day_str, "score": daily_score})
+
+    return history
+
+
 # ── Core computation ──────────────────────────────────────────────────────────
 
 def compute_profile(client_id: str, db: Session) -> BehavioralProfile:
@@ -324,6 +411,13 @@ def compute_profile(client_id: str, db: Session) -> BehavioralProfile:
         .first()
     )
     risk_history = list(existing.risk_history) if existing else []
+
+    # On first run (no existing profile), backfill 30 days of historical
+    # risk scores using the client's actual transaction data so the chart
+    # shows a realistic trend instead of a single dot.
+    if not existing and all_txns:
+        risk_history = _backfill_risk_history(all_txns, client.stated_income, now)
+
     today_str = now.strftime("%Y-%m-%d")
     risk_history = [h for h in risk_history if h["date"] != today_str]
     risk_history.append({"date": today_str, "score": overall})

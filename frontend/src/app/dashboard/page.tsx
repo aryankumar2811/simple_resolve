@@ -172,7 +172,7 @@ export default function DashboardPage() {
             </thead>
             <tbody className="divide-y divide-slate-100">
               {clients.map(client => {
-                const hasProfile = client.overall_risk_score > 0 || client.active_restriction_level > 0
+                const hasProfile = client.overall_risk_score > 0 || client.active_restriction_level > 0 || (client.archetype && client.archetype !== '')
                 const hasRestriction = client.active_restriction_level > 0
                 const level = client.active_restriction_level
 
@@ -203,26 +203,31 @@ export default function DashboardPage() {
                           {LEVEL_LABEL[level] || `L${level}`}
                         </span>
                       ) : (
-                        <span className="text-xs text-slate-400 font-medium">Not assessed</span>
+                        <span className="text-xs text-slate-300 italic">Awaiting analysis</span>
                       )}
                     </td>
                     <td className="px-4 py-3.5 text-xs text-slate-600">
                       {hasProfile && client.archetype
                         ? (ARCHETYPE_LABEL[client.archetype] || client.archetype.replace(/_/g, ' '))
-                        : <span className="text-slate-400">-</span>
+                        : hasProfile
+                        ? <span className="text-slate-400 italic">Standard</span>
+                        : <span className="text-slate-300 italic">-</span>
                       }
                     </td>
                     <td className="px-4 py-3.5 w-40">
                       {hasProfile
                         ? <RiskBar score={client.overall_risk_score} />
-                        : <span className="text-slate-400 text-xs">-</span>
+                        : <span className="text-slate-300 text-xs italic">-</span>
                       }
                     </td>
                     <td className="px-4 py-3.5">
                       {!hasProfile ? (
-                        <span className="text-xs text-slate-400">Pending simulation</span>
+                        <span className="text-xs text-slate-300 italic">Pending simulation</span>
                       ) : level === 0 ? (
-                        <span className="text-xs text-emerald-600 font-medium">Resolved</span>
+                        <span className="text-xs text-emerald-600 font-medium flex items-center gap-1">
+                          <svg className="w-3 h-3" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
+                          Auto-resolved
+                        </span>
                       ) : level === 1 ? (
                         <span className="text-xs text-blue-600 font-medium">Monitoring</span>
                       ) : level === 2 ? (

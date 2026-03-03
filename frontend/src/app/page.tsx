@@ -288,28 +288,53 @@ const LAYERS = [
     num: '01', tag: 'Layer 1', accent: 'border-t-indigo-500',
     title: 'Continuous Risk Surface',
     summary: 'A living behavioral model updated on every transaction.',
-    description: 'Every client has a continuously maintained behavioral profile containing five components: a transaction fingerprint (typical amounts, timing, counterparty stability), a behavioral archetype (payroll-and-bills, active trader, high-frequency crypto — each with its own "normal"), a network graph (every counterparty relationship, enriched with each transaction), a risk trajectory (the direction and velocity of behavioral change), and per-product risk decomposition (crypto withdrawals scored independently from bill payments). A rules engine can flag thresholds. It cannot maintain a multi-dimensional model that understands the difference between "this deposit is large" and "this deposit is large relative to this specific person\'s history."',
+    bullets: [
+      'Maintains a 12-dimensional behavioral profile per client, updated on every transaction',
+      'Classifies clients into behavioral archetypes (payroll depositor, active trader, crypto-heavy) with archetype-specific baselines',
+      'Builds a counterparty network graph enriched with each new transaction',
+      'Scores risk per-product: crypto withdrawals scored independently from bill payments',
+      'Detects deviations relative to each client\'s own history, not static thresholds',
+    ],
     tech: 'Kafka event streams · ML Platform · PostgreSQL JSONB · 12 behavioral dimensions · sub-5ms updates',
   },
   {
     num: '02', tag: 'Layer 2', accent: 'border-t-amber-400',
     title: 'Graduated Response Engine',
     summary: 'Five restriction levels. The minimum necessary intervention.',
-    description: 'The system operates on five graduated levels: L0 Baseline (97% of accounts, passive monitoring), L1 Monitor (enhanced telemetry, client sees nothing), L2 Guardrail (step-up auth for specific high-risk actions, everything else works normally), L3 Restrict (specific capabilities blocked based on the nature of the trigger, the rest of the account open), and L4 Freeze (reserved for confirmed account takeover or sanctions match — target under 5% of all interventions, down from 100% in binary systems). Levels re-evaluate continuously as evidence arrives. A client at L3 who responds to a verification request can de-escalate to L1 in minutes, without a human in the loop. This proportionality is a language task: it requires reasoning about the semantic relationship between the trigger and each product. Rules engines cannot do this.',
+    bullets: [
+      'L0 Baseline (97% of accounts): passive monitoring only',
+      'L1 Monitor: enhanced telemetry, client sees nothing',
+      'L2 Guardrail: step-up auth for specific high-risk actions',
+      'L3 Restrict: specific capabilities blocked based on trigger type',
+      'L4 Freeze: reserved for confirmed account takeover or sanctions match',
+      'Levels re-evaluate continuously; L3 can de-escalate to L1 in minutes',
+    ],
     tech: 'LLM reasoning engine · Structured JSON output · Real-time re-evaluation · PCMLTFA-grounded',
   },
   {
     num: '03', tag: 'Layer 3', accent: 'border-t-violet-500',
     title: 'Investigation Orchestrator',
     summary: '8-node parallel pipeline. Not a cold start.',
-    description: 'Because Layer 1 maintains behavioral profiles continuously, investigation starts from deep context, not scratch. Eight specialized AI agents execute concurrently: baseline enrichment, FINTRAC indicator tagging, money flow reconstruction, cross-client correlation (queries the entire client base simultaneously for coordinated patterns — a capability no human team can replicate at any scale), sanctions screening, case classification, and STR narrative generation. When coordination is detected (clients A, B, and C all structuring into the same wallet cluster), the system produces one evidence package covering the entire correlated network. A human team investigating each alert independently might connect them weeks later, if ever.',
+    bullets: [
+      'Starts from deep behavioral context (Layer 1), not a cold start',
+      '8 specialized AI agents run concurrently: baseline enrichment, FINTRAC tagging, money flow, cross-client correlation, sanctions screening, classification, STR drafting',
+      'Cross-client correlation queries the entire client base for coordinated patterns',
+      'Produces one evidence package covering the full correlated network',
+      'End-to-end in under 4 minutes',
+    ],
     tech: 'LangGraph DAG · LangChain · Parallel execution · Cross-client correlation · under 4 min',
   },
   {
     num: '04', tag: 'Layer 4', accent: 'border-t-slate-400',
     title: 'Human Boundary',
     summary: 'One judgment call. The system handles everything else.',
-    description: 'Filing a Suspicious Transaction Report under PCMLTFA is a legal act signed personally by the compliance officer — not the company. FINTRAC\'s standard ("reasonable grounds to suspect") is deliberately subjective: the analyst weighs context the system cannot access, including whether an explanation holds up, whether cultural context is being missed, and whether this is a genuine pattern or statistical noise. CSA Staff Notice 11-348 (December 2024) explicitly requires human-in-the-loop for AI systems in Canadian capital markets. The system is designed around this constraint. The analyst receives a complete investigation package (deviation analysis, flow visualization, network map, FINTRAC tags, draft STR narrative) and makes one decision: file or dismiss. Their time shifts from 80% evidence assembly to 100% judgment.',
+    bullets: [
+      'Filing an STR under PCMLTFA is a legal act signed personally by the compliance officer',
+      'FINTRAC\'s "reasonable grounds to suspect" standard is deliberately subjective',
+      'CSA Staff Notice 11-348 requires human-in-the-loop for AI in Canadian capital markets',
+      'Analyst receives a complete investigation package and makes one decision: file or dismiss',
+      'Time shifts from 80% evidence assembly to 100% judgment',
+    ],
     tech: 'PCMLTFA s.7 · FINTRAC STR · CSA Staff Notice 11-348 · Full audit trail · Human sign-off',
   },
 ]
@@ -597,98 +622,115 @@ function ArchitectureDiagram() {
   const ref = useRef(null)
   const inView = useInView(ref, { once: true, margin: '-80px' })
 
+  const layerColors: Record<string, { label: string; left: string; nodeBorder: string; nodeHover: string; activeBg: string; activeBorder: string; arrow: string }> = {
+    ingestion:    { label: 'text-slate-400',  left: 'border-l-slate-300',  nodeBorder: 'border-slate-150', nodeHover: 'hover:border-slate-300', activeBg: 'bg-slate-50', activeBorder: 'border-slate-400', arrow: 'text-slate-300' },
+    behavioral:   { label: 'text-indigo-500', left: 'border-l-indigo-400', nodeBorder: 'border-indigo-100', nodeHover: 'hover:border-indigo-300', activeBg: 'bg-indigo-50', activeBorder: 'border-indigo-400', arrow: 'text-indigo-300' },
+    response:     { label: 'text-amber-500',  left: 'border-l-amber-400',  nodeBorder: 'border-amber-100', nodeHover: 'hover:border-amber-300', activeBg: 'bg-amber-50', activeBorder: 'border-amber-400', arrow: 'text-amber-300' },
+    investigation:{ label: 'text-violet-500', left: 'border-l-violet-400', nodeBorder: 'border-violet-100', nodeHover: 'hover:border-violet-300', activeBg: 'bg-violet-50', activeBorder: 'border-violet-400', arrow: 'text-violet-300' },
+  }
+
   return (
-    <div ref={ref}>
-      {NODE_ROWS.map((row, rowIdx) => (
-        <div key={row.id}>
-          {/* Vertical connector between rows */}
-          {rowIdx > 0 && (
-            <div className="flex justify-around py-1.5">
-              {[0, 1, 2].map(i => (
-                <div key={i} className="flex flex-col items-center gap-0.5">
-                  <div className="w-px h-4 bg-slate-200" />
-                  <svg className="w-3 h-3 text-slate-300" viewBox="0 0 12 12" fill="none">
-                    <path d="M6 2v8M3 7l3 3 3-3" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
+    <div ref={ref} className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+      {NODE_ROWS.map((row, rowIdx) => {
+        const c = layerColors[row.id]
+        return (
+          <div key={row.id}>
+            {/* Connector line between layers */}
+            {rowIdx > 0 && (
+              <div className="flex justify-center">
+                <div className="flex flex-col items-center py-0">
+                  <div className={`w-px h-3 ${c.arrow.replace('text-', 'bg-')}`} />
+                  <svg className={`w-3 h-2 ${c.arrow}`} viewBox="0 0 12 8" fill="currentColor">
+                    <path d="M6 8L1 2h10L6 8z" />
                   </svg>
                 </div>
-              ))}
-            </div>
-          )}
+              </div>
+            )}
 
-          {/* Row */}
-          <div className={`rounded-xl border ${row.border} ${row.bg} px-3 pt-2.5 pb-3`}>
-            <p className={`text-[9px] font-bold uppercase tracking-widest ${row.labelColor} mb-2 ${mono.className}`}>
-              {row.label}
-            </p>
-            <div className="flex items-stretch">
-              {row.nodes.reduce((acc: React.ReactNode[], nodeId, nodeIdx) => {
-                if (nodeIdx > 0) {
-                  acc.push(<FlowArrow key={`arrow-${nodeId}`} variant={row.variant} />)
-                }
-                acc.push(
-                  <motion.button
-                    key={nodeId}
-                    initial={{ opacity: 0, y: 8 }}
-                    animate={inView ? { opacity: 1, y: 0 } : {}}
-                    transition={{ duration: 0.35, delay: rowIdx * 0.08 + nodeIdx * 0.05 }}
-                    onClick={() => setActiveNode(activeNode === nodeId ? null : nodeId)}
-                    whileHover={{ scale: 1.02 }}
-                    whileTap={{ scale: 0.98 }}
-                    className={`flex-1 min-w-0 text-left p-3 rounded-lg border-2 transition-all cursor-pointer ${
-                      activeNode === nodeId
-                        ? `${row.activeBorder} ${row.activeBg} shadow-sm`
-                        : 'border-white bg-white hover:border-slate-200 hover:shadow-sm'
-                    }`}
-                  >
-                    <p className={`text-[10px] font-semibold text-slate-700 leading-snug ${mono.className}`}>
-                      {nodeId}
-                    </p>
-                    {NODE_DETAILS[nodeId] && (
-                      <p className="text-[9px] text-slate-400 mt-0.5 leading-tight">
-                        {NODE_DETAILS[nodeId].stat}
-                      </p>
+            {/* Layer */}
+            <motion.div
+              initial={{ opacity: 0, x: -8 }}
+              animate={inView ? { opacity: 1, x: 0 } : {}}
+              transition={{ duration: 0.35, delay: rowIdx * 0.1 }}
+              className={`flex items-stretch border-l-[3px] ${c.left} mx-3 ${rowIdx === 0 ? 'mt-3' : ''} ${rowIdx === NODE_ROWS.length - 1 ? 'mb-3' : ''}`}
+            >
+              {/* Layer label */}
+              <div className="w-24 sm:w-28 shrink-0 flex items-center pl-3">
+                <span className={`text-[9px] font-bold uppercase tracking-widest ${c.label} ${mono.className}`}>
+                  {row.label}
+                </span>
+              </div>
+
+              {/* Nodes in row */}
+              <div className="flex-1 flex items-center gap-1 py-2 pr-3">
+                {row.nodes.map((nodeId, nodeIdx) => (
+                  <div key={nodeId} className="flex items-center flex-1 min-w-0">
+                    {nodeIdx > 0 && (
+                      <svg className={`w-4 h-3 shrink-0 mx-0.5 ${c.arrow}`} viewBox="0 0 16 12" fill="none">
+                        <path d="M0 6h12M9 3l3 3-3 3" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
                     )}
-                  </motion.button>
-                )
-                return acc
-              }, [])}
-            </div>
+                    <motion.button
+                      initial={{ opacity: 0 }}
+                      animate={inView ? { opacity: 1 } : {}}
+                      transition={{ duration: 0.25, delay: rowIdx * 0.08 + nodeIdx * 0.05 }}
+                      onClick={() => setActiveNode(activeNode === nodeId ? null : nodeId)}
+                      className={`flex-1 min-w-0 text-left px-2.5 py-2 rounded-md border transition-all cursor-pointer ${
+                        activeNode === nodeId
+                          ? `${c.activeBorder} ${c.activeBg} shadow-sm`
+                          : `${c.nodeBorder} bg-white ${c.nodeHover} hover:shadow-sm`
+                      }`}
+                    >
+                      <p className={`text-[10px] font-semibold text-slate-700 leading-tight truncate ${mono.className}`}>
+                        {nodeId}
+                      </p>
+                      <p className="text-[9px] text-slate-400 mt-0.5 leading-tight truncate">
+                        {NODE_DETAILS[nodeId]?.stat}
+                      </p>
+                    </motion.button>
+                  </div>
+                ))}
+              </div>
+            </motion.div>
           </div>
-        </div>
-      ))}
+        )
+      })}
 
       {/* Detail panel */}
       <AnimatePresence>
         {activeNode !== null && NODE_DETAILS[activeNode] && (
           <motion.div
             key={activeNode}
-            initial={{ opacity: 0, y: -8 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -8 }}
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
             transition={{ duration: 0.2 }}
-            className="mt-3 bg-white border border-slate-200 rounded-xl p-5 shadow-sm"
+            className="overflow-hidden"
           >
-            <div className="flex items-start justify-between gap-6">
-              <div className="flex-1 min-w-0">
-                <p className={`text-[10px] font-bold text-indigo-400 uppercase tracking-wide mb-0.5 ${mono.className}`}>
-                  {NODE_DETAILS[activeNode].layer}
-                </p>
-                <p className="text-sm font-bold text-slate-900 mb-2">{activeNode}</p>
-                <p className="text-sm text-slate-500 leading-relaxed">{NODE_DETAILS[activeNode].desc}</p>
-              </div>
-              <div className="shrink-0 text-right">
-                <p className={`text-[9px] text-slate-400 uppercase tracking-wide mb-1.5 ${mono.className}`}>Key metric</p>
-                <span className={`text-[10px] font-bold text-indigo-600 bg-indigo-50 px-3 py-1.5 rounded-lg border border-indigo-100 block ${mono.className}`}>
-                  {NODE_DETAILS[activeNode].stat}
-                </span>
+            <div className="border-t border-slate-200 px-5 py-4 bg-slate-50">
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <p className={`text-[10px] font-bold text-indigo-400 uppercase tracking-wide ${mono.className}`}>
+                      {NODE_DETAILS[activeNode].layer}
+                    </p>
+                    <span className={`text-[10px] font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-100 ${mono.className}`}>
+                      {NODE_DETAILS[activeNode].stat}
+                    </span>
+                  </div>
+                  <p className="text-sm font-bold text-slate-900 mb-1">{activeNode}</p>
+                  <p className="text-xs text-slate-500 leading-relaxed">{NODE_DETAILS[activeNode].desc}</p>
+                </div>
+                <button
+                  onClick={() => setActiveNode(null)}
+                  className="shrink-0 w-6 h-6 rounded-full bg-slate-200 flex items-center justify-center text-slate-400 hover:bg-slate-300 hover:text-slate-600 transition-colors"
+                >
+                  <svg className="w-3 h-3" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth={2}>
+                    <path d="M2 2l8 8M10 2l-8 8" />
+                  </svg>
+                </button>
               </div>
             </div>
-            <button
-              onClick={() => setActiveNode(null)}
-              className={`mt-3 text-[10px] text-slate-400 hover:text-slate-600 transition-colors ${mono.className}`}
-            >
-              Dismiss
-            </button>
           </motion.div>
         )}
       </AnimatePresence>
@@ -745,19 +787,8 @@ export default function StartPage() {
         transition={{ duration: 0.4 }}
         className="sticky top-0 z-40 bg-white/90 backdrop-blur-sm border-b border-slate-200"
       >
-        <div className="max-w-6xl mx-auto px-4 sm:px-8 h-14 flex items-center justify-between">
-          <span className="text-slate-900 font-bold text-sm tracking-tight">SimpleResolve</span>
-          <div className="flex items-center gap-5">
-            <Link href="/dashboard" className="text-sm text-slate-400 hover:text-slate-900 transition-colors">
-              Dashboard
-            </Link>
-            <Link
-              href="/dashboard"
-              className="text-sm font-semibold bg-indigo-600 text-white px-4 py-1.5 rounded-lg hover:bg-indigo-700 transition-colors"
-            >
-              Open Dashboard
-            </Link>
-          </div>
+        <div className="max-w-6xl mx-auto px-4 sm:px-8 h-14 flex items-center">
+          <span className="text-slate-900 font-bold text-xl tracking-tight">SimpleResolve</span>
         </div>
       </motion.header>
 
@@ -772,28 +803,20 @@ export default function StartPage() {
           transition={{ duration: 0.55, delay: 0.08 }}
           className="text-4xl sm:text-5xl font-extrabold text-slate-900 mt-4 mb-5 leading-[1.08] tracking-tight max-w-3xl"
         >
-          An AI-native AML investigation system for Canadian fintechs.
+          Stop freezing your customers.{' '}
+          <br className="hidden sm:block" />
+          Start resolving risk.
         </motion.h1>
         <motion.div
           initial={{ opacity: 0, y: 12 }}
           animate={heroInView ? { opacity: 1, y: 0 } : {}}
           transition={{ duration: 0.5, delay: 0.16 }}
-          className="max-w-3xl space-y-4 text-slate-500 text-base leading-relaxed mb-10"
+          className="max-w-3xl text-slate-500 text-base leading-relaxed mb-10"
         >
           <p>
-            SimpleResolve is a prototype of what AI-native AML infrastructure looks like. Traditional compliance
-            systems apply a single binary response to every alert: freeze everything, queue for manual review.
-            This treats a crypto layering pattern the same as a one-time salary spike.
-          </p>
-          <p>
-            This system introduces a four-layer pipeline: continuous behavioral profiling across every client
-            simultaneously, AI-reasoned graduated response (which specific capabilities to restrict, not
-            an all-or-nothing freeze), an autonomous multi-agent investigation pipeline, and a compliant
-            human decision boundary that matches the obligations of the{' '}
-            <span className="text-slate-700 font-medium">
-              Proceeds of Crime (Money Laundering) and Terrorist Financing Act
-            </span>
-            .
+            Legacy AML locks every flagged account and waits for manual review. SimpleResolve uses behavioral AI
+            to catch real threats, unfreeze legitimate customers in minutes, and stay{' '}
+            <span className="text-slate-700 font-medium">FINTRAC-compliant</span> — automatically.
           </p>
         </motion.div>
         <motion.div
@@ -888,8 +911,7 @@ export default function StartPage() {
             <SectionTag>Architecture</SectionTag>
             <h2 className="text-3xl font-extrabold text-slate-900 mt-3 mb-2 tracking-tight">Four layers. One pipeline.</h2>
             <p className="text-slate-500 mb-12 max-w-2xl leading-relaxed">
-              Each layer has a distinct responsibility and a clear AI justification. The system is designed so
-              that removing any layer degrades a specific capability, not a vague &ldquo;intelligence.&rdquo;
+              Each layer has a distinct responsibility. Removing any layer degrades a specific capability.
             </p>
           </Reveal>
 
@@ -906,8 +928,15 @@ export default function StartPage() {
                     </div>
                     <span className="text-3xl font-black text-slate-100">{layer.num}</span>
                   </div>
-                  <h3 className="text-base font-bold text-slate-900 mb-2.5">{layer.title}</h3>
-                  <p className="text-sm text-slate-500 leading-relaxed flex-1">{layer.description}</p>
+                  <h3 className="text-base font-bold text-slate-900 mb-3">{layer.title}</h3>
+                  <ul className="space-y-1.5 flex-1">
+                    {layer.bullets.map((bullet, j) => (
+                      <li key={j} className="flex items-start gap-2 text-sm text-slate-500 leading-snug">
+                        <span className="w-1 h-1 rounded-full bg-slate-300 shrink-0 mt-2" />
+                        {bullet}
+                      </li>
+                    ))}
+                  </ul>
                   <div className={`mt-4 pt-3.5 border-t border-slate-100 text-[10px] text-slate-400 ${mono.className}`}>
                     {layer.tech}
                   </div>
@@ -1080,7 +1109,7 @@ export default function StartPage() {
       <footer className="px-4 sm:px-8 py-10 border-t border-slate-200 bg-white">
         <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div>
-            <span className="text-slate-900 font-bold text-sm">SimpleResolve</span>
+            <span className="text-slate-900 font-bold text-lg">SimpleResolve</span>
             <p className={`text-xs text-slate-400 mt-0.5 ${mono.className}`}>
               Prototype system. Not for production use. All client data is synthetic.
             </p>

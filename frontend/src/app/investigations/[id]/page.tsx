@@ -32,9 +32,9 @@ const LAYER_BADGE: Record<number, string> = {
   3: 'bg-orange-100 text-orange-700',
 }
 const LAYER_LABELS: Record<number, string> = {
-  1: 'L1 Behavioral',
-  2: 'L2 Response',
-  3: 'L3 Orchestrator',
+  1: 'Behavioral Analysis',
+  2: 'Graduated Response',
+  3: 'Investigation Orchestrator',
 }
 
 const ACTION_ICON: Record<string, string> = {
@@ -232,43 +232,67 @@ function FINTRACDocument({ inv }: { inv: InvestigationDetail }) {
           </FINTRACSection>
 
           {/* 2 - Subject Profile */}
-          {draft.subject_profile && (
-            <FINTRACSection num="2" title="Subject Profile">
+          <FINTRACSection num="2" title="Subject Profile">
+            {draft.subject_profile ? (
               <p className="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap">
                 {draft.subject_profile}
               </p>
-            </FINTRACSection>
-          )}
-
-          {/* 3 - Transaction Details */}
-          {draft.tagged_transactions?.length > 0 && (
-            <FINTRACSection num="3" title="Transaction Details">
-              <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="bg-slate-50 border-b border-slate-200">
-                      {['Date', 'Type', 'Product', 'Amount', 'Counterparty', 'Indicators'].map(h => (
-                        <th key={h} className="text-left px-3 py-2 text-xs font-semibold text-slate-500">{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {draft.tagged_transactions.map((t: TaggedTransaction) => (
-                      <TransactionRow key={t.id} txn={t} />
-                    ))}
-                  </tbody>
-                </table>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <ReadonlyField label="Name" value={inv.client_name} />
+                <ReadonlyField label="Case Reference" value={`CASE-${inv.id.slice(0, 8).toUpperCase()}`} />
+                <ReadonlyField label="Response Level" value={`Level ${inv.response_level}`} />
+                <ReadonlyField label="Classification" value={inv.classification?.replace(/_/g, ' ') || 'Pending'} />
               </div>
-            </FINTRACSection>
-          )}
+            )}
+          </FINTRACSection>
+
+          {/* 3 - Suspicious Transaction Details (only flagged) */}
+          <FINTRACSection num="3" title="Suspicious Transaction Details">
+            {(() => {
+              const flaggedTxns = (draft.tagged_transactions || []).filter(
+                (t: TaggedTransaction) => t.fintrac_indicators && t.fintrac_indicators.length > 0
+              )
+              if (flaggedTxns.length === 0) {
+                return (
+                  <div className="bg-white border border-slate-200 rounded-lg px-4 py-6 text-center">
+                    <p className="text-xs text-slate-400">No transactions with FINTRAC indicators found.</p>
+                  </div>
+                )
+              }
+              return (
+                <>
+                  <p className="text-xs text-slate-400 mb-2">
+                    Showing {flaggedTxns.length} of {draft.tagged_transactions?.length ?? 0} transactions with FINTRAC indicators
+                  </p>
+                  <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="bg-slate-50 border-b border-slate-200">
+                          {['Date', 'Type', 'Product', 'Amount', 'Counterparty', 'Indicators'].map(h => (
+                            <th key={h} className="text-left px-3 py-2 text-xs font-semibold text-slate-500">{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {flaggedTxns.map((t: TaggedTransaction) => (
+                          <TransactionRow key={t.id} txn={t} />
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              )
+            })()}
+          </FINTRACSection>
 
           {/* 4 - Suspicious Activity Description */}
           <FINTRACSection num="4" title="Suspicious Activity Description">
             <p className="text-xs text-slate-400 mb-2">
-              AI-generated narrative. Edit before filing if needed.
+              {activityText ? 'AI-generated narrative. Edit before filing if needed.' : 'Describe the suspicious activity observed. AI narrative will populate after simulation.'}
             </p>
             <textarea
-              value={activityText}
+              value={activityText || `Suspicious activity detected for client ${inv.client_name} (Case #${inv.id.slice(0, 8).toUpperCase()}). Investigation classification: ${inv.classification?.replace(/_/g, ' ') || 'pending'}. ${inv.confidence ? `AI confidence: ${inv.confidence.toFixed(0)}%.` : ''} ${inv.reasoning || 'See AI Investigation Narrative for full details.'}`}
               onChange={e => setActivityText(e.target.value)}
               rows={6}
               disabled={draft.status !== 'draft'}
@@ -365,46 +389,52 @@ function FINTRACDocument({ inv }: { inv: InvestigationDetail }) {
           {/* 7 - AI Analysis */}
           <FINTRACSection num="7" title="AI Analysis">
             <div className="space-y-4">
-              {draft.ai_confidence != null && (
-                <div className="flex items-center gap-3">
-                  <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide w-24 shrink-0">
-                    Confidence
-                  </span>
-                  <div className="flex-1 bg-slate-200 rounded-full h-2">
-                    <div
-                      className="h-2 rounded-full bg-indigo-500 transition-all"
-                      style={{ width: `${draft.ai_confidence}%` }}
-                    />
-                  </div>
-                  <span className="text-sm font-bold text-indigo-700 w-12 text-right tabular-nums">
-                    {draft.ai_confidence?.toFixed(0)}%
-                  </span>
+              <div className="flex items-center gap-3">
+                <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide w-24 shrink-0">
+                  Confidence
+                </span>
+                <div className="flex-1 bg-slate-200 rounded-full h-2">
+                  <div
+                    className="h-2 rounded-full bg-indigo-500 transition-all"
+                    style={{ width: `${draft.ai_confidence ?? inv.confidence ?? 0}%` }}
+                  />
                 </div>
-              )}
-              {draft.behavioral_context && (
-                <div>
-                  <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1.5">
-                    Behavioral Context
-                  </p>
-                  <p className="text-sm text-slate-600 leading-relaxed">{draft.behavioral_context}</p>
-                </div>
-              )}
-              {draft.network_analysis && (
+                <span className="text-sm font-bold text-indigo-700 w-12 text-right tabular-nums">
+                  {(draft.ai_confidence ?? inv.confidence ?? 0).toFixed(0)}%
+                </span>
+              </div>
+              <div>
+                <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1.5">
+                  Behavioral Context
+                </p>
+                <p className="text-sm text-slate-600 leading-relaxed">
+                  {draft.behavioral_context || inv.reasoning || 'Behavioral analysis completed. See Agent Steps tab for detailed pipeline output.'}
+                </p>
+              </div>
+              {(draft.network_analysis || inv.is_coordinated) && (
                 <div>
                   <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1.5">
                     Network Analysis
                   </p>
-                  <p className="text-sm text-slate-600 leading-relaxed">{draft.network_analysis}</p>
-                </div>
-              )}
-              {draft.recommendation && (
-                <div className="bg-indigo-50 border border-indigo-200 rounded-lg px-4 py-3">
-                  <p className="text-xs font-semibold text-indigo-600 uppercase tracking-wide mb-1">
-                    AI Recommendation
+                  <p className="text-sm text-slate-600 leading-relaxed">
+                    {draft.network_analysis || (inv.is_coordinated
+                      ? `Coordinated activity detected across ${inv.correlated_client_ids.length + 1} linked accounts. Cross-client correlation identified shared counterparties or wallet clusters.`
+                      : 'No cross-client network links detected.')}
                   </p>
-                  <p className="text-sm text-indigo-800 font-medium">{draft.recommendation}</p>
                 </div>
               )}
+              <div className="bg-indigo-50 border border-indigo-200 rounded-lg px-4 py-3">
+                <p className="text-xs font-semibold text-indigo-600 uppercase tracking-wide mb-1">
+                  AI Recommendation
+                </p>
+                <p className="text-sm text-indigo-800 font-medium">
+                  {draft.recommendation || (inv.classification === 'full_investigation'
+                    ? 'Full investigation recommended. File STR with FINTRAC after human review.'
+                    : inv.classification === 'fast_track'
+                    ? 'Fast-track review recommended. Expedite human review and escalate if confirmed.'
+                    : 'Review complete. Follow graduated response protocol.')}
+                </p>
+              </div>
             </div>
           </FINTRACSection>
 
@@ -565,7 +595,7 @@ function AgentStepsTab({ stepLog }: { stepLog: StepLogEntry[] }) {
   return (
     <div className="space-y-3">
       <p className="text-xs text-slate-400">
-        {stepLog.length} pipeline steps · Layer 1 (Behavioral) → Layer 2 (Response) → Layer 3 (Orchestrator)
+        {stepLog.length} pipeline steps · Behavioral Analysis → Graduated Response → Investigation Orchestrator
       </p>
       <div className="relative">
         <div className="absolute left-3 top-0 bottom-0 w-px bg-slate-200" />
@@ -574,17 +604,21 @@ function AgentStepsTab({ stepLog }: { stepLog: StepLogEntry[] }) {
             const parsed = step.details ? parseStepDetails(step.details) : null
             const isExpanded = expanded.has(i)
             const hasData = parsed && parsed.data && Object.keys(parsed.data).length > 0
+            const isExpandable = hasData || (!parsed && step.details && step.details.length > 0)
 
             return (
               <div key={i} className="relative">
                 <div className="absolute -left-5 top-1 w-2.5 h-2.5 rounded-full bg-emerald-400 border-2 border-white" />
                 <div
                   className={`bg-white rounded-lg border p-3 shadow-sm transition-colors ${
-                    hasData ? 'cursor-pointer hover:border-indigo-200' : ''
+                    isExpandable ? 'cursor-pointer hover:border-indigo-200' : ''
                   } ${isExpanded ? 'border-indigo-200' : 'border-slate-100'}`}
-                  onClick={() => hasData && toggle(i)}
+                  onClick={() => isExpandable && toggle(i)}
                 >
                   <div className="flex items-center gap-2 flex-wrap mb-1">
+                    <span className="text-[10px] font-bold text-slate-400 font-mono w-5 text-right shrink-0">
+                      {i + 1}.
+                    </span>
                     <span className={`text-xs font-semibold px-1.5 py-0.5 rounded ${LAYER_BADGE[step.layer] || 'bg-slate-100 text-slate-600'}`}>
                       {LAYER_LABELS[step.layer] || `Layer ${step.layer}`}
                     </span>
@@ -596,7 +630,7 @@ function AgentStepsTab({ stepLog }: { stepLog: StepLogEntry[] }) {
                       <span className="text-xs text-slate-400 font-mono">
                         {new Date(step.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
                       </span>
-                      {hasData && (
+                      {isExpandable && (
                         <svg
                           className={`w-3.5 h-3.5 text-slate-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
                           fill="none" viewBox="0 0 24 24" stroke="currentColor"
@@ -609,11 +643,11 @@ function AgentStepsTab({ stepLog }: { stepLog: StepLogEntry[] }) {
                   {/* Summary line */}
                   {parsed ? (
                     <p className="text-xs text-slate-500 leading-relaxed">{parsed.summary}</p>
-                  ) : step.details ? (
-                    <p className="text-xs text-slate-500 leading-relaxed">{step.details}</p>
+                  ) : step.details && !isExpanded ? (
+                    <p className="text-xs text-slate-500 leading-relaxed line-clamp-1">{step.details}</p>
                   ) : null}
 
-                  {/* Expanded data grid */}
+                  {/* Expanded data grid (JSON) */}
                   {isExpanded && parsed?.data && (
                     <div className="mt-3 pt-3 border-t border-slate-100">
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2">
@@ -628,6 +662,12 @@ function AgentStepsTab({ stepLog }: { stepLog: StepLogEntry[] }) {
                           </div>
                         ))}
                       </div>
+                    </div>
+                  )}
+                  {/* Expanded plain text details */}
+                  {isExpanded && !parsed && step.details && (
+                    <div className="mt-3 pt-3 border-t border-slate-100">
+                      <p className="text-xs text-slate-600 leading-relaxed whitespace-pre-wrap">{step.details}</p>
                     </div>
                   )}
                 </div>
