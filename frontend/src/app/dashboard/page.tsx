@@ -3,7 +3,7 @@ import { useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
 import { api, ClientSummary, DashboardSummary } from '@/lib/api'
 import { useSimulation } from '@/context/SimulationContext'
-import SimulationModal from '@/components/SimulationModal'
+import SimulationModal, { InlineSimulationPanel } from '@/components/SimulationModal'
 
 const LEVEL_BADGE: Record<number, string> = {
   0: 'bg-emerald-100 text-emerald-700 border border-emerald-200',
@@ -14,8 +14,8 @@ const LEVEL_BADGE: Record<number, string> = {
 }
 
 const LEVEL_LABEL: Record<number, string> = {
-  0: 'L0 — Clear', 1: 'L1 — Monitor', 2: 'L2 — Guardrail',
-  3: 'L3 — Restricted', 4: 'L4 — Frozen',
+  0: 'Resolved', 1: 'L1: Monitor', 2: 'L2: Guardrail',
+  3: 'L3: Restricted', 4: 'L4: Frozen',
 }
 
 const ARCHETYPE_LABEL: Record<string, string> = {
@@ -109,11 +109,14 @@ export default function DashboardPage() {
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
         <MetricCard label="Monitored Accounts" value="3.2M" sub="Platform scale" />
         <MetricCard label="Risk Events Today" value="1,847" sub="Across all clients" warn />
-        <MetricCard label="Open Investigations" value={dashboard?.open_investigations ?? '—'} sub="Require review" accent />
-        <MetricCard label="STR Drafts Pending" value={dashboard?.str_drafts_pending ?? '—'} sub="Awaiting analyst" warn />
-        <MetricCard label="STRs Filed / Month" value={dashboard?.strs_filed_this_month ?? '—'} sub="FINTRAC submissions" />
+        <MetricCard label="Open Investigations" value={dashboard?.open_investigations ?? 0} sub="Require review" accent />
+        <MetricCard label="STR Drafts Pending" value={dashboard?.str_drafts_pending ?? 0} sub="Awaiting analyst" warn />
+        <MetricCard label="STRs Filed / Month" value={dashboard?.strs_filed_this_month ?? 0} sub="FINTRAC submissions" />
         <MetricCard label="Auto-Resolved" value="94.7%" sub="L0–L1 escalations" />
       </div>
+
+      {/* Inline simulation panel (shows when simulation is running) */}
+      <InlineSimulationPanel />
 
       {/* Client risk register */}
       <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
@@ -121,7 +124,7 @@ export default function DashboardPage() {
           <div>
             <h2 className="text-sm font-semibold text-slate-900">Client Risk Register</h2>
             <p className="text-xs text-slate-500 mt-0.5">
-              {clients.length} monitored clients — {clients.filter(c => c.active_restriction_level > 0).length} with active restrictions
+              {clients.length} monitored clients · {clients.filter(c => c.active_restriction_level > 0).length} with active restrictions
             </p>
           </div>
           <div className="flex items-center gap-3">
@@ -206,26 +209,30 @@ export default function DashboardPage() {
                     <td className="px-4 py-3.5 text-xs text-slate-600">
                       {hasProfile && client.archetype
                         ? (ARCHETYPE_LABEL[client.archetype] || client.archetype.replace(/_/g, ' '))
-                        : <span className="text-slate-400">—</span>
+                        : <span className="text-slate-400">-</span>
                       }
                     </td>
                     <td className="px-4 py-3.5 w-40">
                       {hasProfile
                         ? <RiskBar score={client.overall_risk_score} />
-                        : <span className="text-slate-400 text-xs">—</span>
+                        : <span className="text-slate-400 text-xs">-</span>
                       }
                     </td>
                     <td className="px-4 py-3.5">
                       {!hasProfile ? (
                         <span className="text-xs text-slate-400">Pending simulation</span>
-                      ) : !hasRestriction ? (
-                        <span className="text-xs text-emerald-600 font-medium">Active — Unrestricted</span>
+                      ) : level === 0 ? (
+                        <span className="text-xs text-emerald-600 font-medium">Resolved</span>
+                      ) : level === 1 ? (
+                        <span className="text-xs text-blue-600 font-medium">Monitoring</span>
+                      ) : level === 2 ? (
+                        <span className="text-xs text-amber-600 font-medium">Guardrail Active</span>
                       ) : level >= 3 ? (
                         <Link href={`/clients/${client.id}`} className="text-xs text-orange-600 font-medium hover:underline">
                           Under Investigation →
                         </Link>
                       ) : (
-                        <span className="text-xs text-amber-600 font-medium">Restricted</span>
+                        <span className="text-xs text-emerald-600 font-medium">Active</span>
                       )}
                     </td>
                   </tr>
@@ -250,7 +257,7 @@ export default function DashboardPage() {
                 </span>
                 <span className="text-slate-700 flex-1 text-xs">
                   <span className="font-medium text-slate-900">{entry.actor}</span>
-                  {' — '}{entry.action.replace(/_/g, ' ')}
+                  {' · '}{entry.action.replace(/_/g, ' ')}
                 </span>
                 <span className="text-xs text-slate-400 capitalize shrink-0">{entry.entity_type}</span>
               </div>

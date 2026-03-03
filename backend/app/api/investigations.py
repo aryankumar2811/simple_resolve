@@ -1,3 +1,4 @@
+import json
 import uuid
 from datetime import datetime, timedelta
 from typing import Optional
@@ -219,12 +220,10 @@ def _run_simulate_pipeline(
 
         # ── Layer 1 steps ────────────────────────────────────────────────────
         append_step("loading_client_data", "Loading client profile, KYC, and transaction history", 1,
-                    f"Client: {client_name} | Account data and 90-day transaction history retrieved")
+                    json.dumps({"summary": f"Client: {client_name} | Account data and 90-day transaction history retrieved",
+                                "data": {"client_name": client_name, "client_id": client_id}}))
 
-        append_step("behavioral_baseline", "Computing 90-day behavioral baseline", 1,
-                    "Average deposit, withdrawal, frequency, and product usage ratios calculated")
-
-        # Recompute profile (Layer 1) — must happen before reading archetype/score
+        # Recompute profile (Layer 1)
         fresh_profile = compute_profile(client_id, db)
         db.commit()
 
@@ -232,28 +231,43 @@ def _run_simulate_pipeline(
         profile_risk_score = fresh_profile.overall_risk_score or 0.0
         indicators = [i["indicator"] for i in (fresh_profile.indicators_detected or [])]
 
+        append_step("behavioral_baseline", "Computing 90-day behavioral baseline", 1,
+                    json.dumps({"summary": "Deposit, withdrawal, frequency, and product usage ratios calculated",
+                                "data": {"avg_deposit": round(fresh_profile.avg_deposit_amount, 2),
+                                         "avg_withdrawal": round(fresh_profile.avg_withdrawal_amount, 2),
+                                         "deposit_freq_per_week": round(fresh_profile.deposit_frequency_per_week, 2),
+                                         "total_inflow_30d": round(fresh_profile.total_inflow_30d, 2),
+                                         "total_outflow_30d": round(fresh_profile.total_outflow_30d, 2),
+                                         "known_counterparties": len(fresh_profile.known_counterparties or [])}}))
+
         append_step("archetype_classification", f"Behavioral archetype: {profile_archetype.replace('_', ' ')}", 1,
-                    f"Client classified as {profile_archetype.replace('_', ' ')} — "
-                    f"{len(fresh_profile.known_counterparties or [])} counterparties mapped")
+                    json.dumps({"summary": f"Client classified as {profile_archetype.replace('_', ' ')}",
+                                "data": {"archetype": profile_archetype,
+                                         "trajectory": fresh_profile.archetype_trajectory or "stable",
+                                         "counterparties_mapped": len(fresh_profile.known_counterparties or [])}}))
 
         append_step("network_graph_build", "Building known-counterparty network graph", 1,
-                    f"{len(fresh_profile.known_counterparties or [])} counterparty nodes, "
-                    f"directionality and novelty scored")
+                    json.dumps({"summary": f"{len(fresh_profile.known_counterparties or [])} counterparty nodes mapped",
+                                "data": {"counterparty_count": len(fresh_profile.known_counterparties or []),
+                                         "top_counterparties": [cp["name"] for cp in (fresh_profile.known_counterparties or [])[:5]]}}))
 
         scores_str = ", ".join(f"{k}: {v:.2f}" for k, v in fresh_profile.risk_scores.items() if k != "overall")
         append_step("per_product_risk_scores", "Computing per-product risk scores", 1,
-                    f"Per-product scores: {scores_str}")
+                    json.dumps({"summary": f"Per-product scores: {scores_str}",
+                                "data": {k: v for k, v in fresh_profile.risk_scores.items()}}))
 
         trend = fresh_profile.risk_trend or "stable"
         append_step("risk_trajectory", f"Risk trajectory: {trend}", 1,
-                    f"7-day trend vs 30-day rolling average — trajectory: {trend}")
+                    json.dumps({"summary": f"7-day trend vs 30-day rolling average: {trend}",
+                                "data": {"trend": trend, "overall_score": profile_risk_score,
+                                         "risk_history_points": len(fresh_profile.risk_history or [])}}))
 
-        deviation_detail = (
-            f"Composite deviation score: {profile_risk_score:.2f} — "
-            + (f"FINTRAC indicators detected: {', '.join(indicators)}" if indicators
-               else "activity within normal behavioral range")
-        )
-        append_step("deviation_calculation", "Running deviation analysis", 1, deviation_detail)
+        append_step("deviation_calculation", "Running deviation analysis", 1,
+                    json.dumps({"summary": f"Composite deviation score: {profile_risk_score:.2f}" +
+                                (f" | Indicators: {', '.join(indicators)}" if indicators else " | Within normal range"),
+                                "data": {"overall_risk_score": profile_risk_score,
+                                         "indicators_detected": indicators,
+                                         "indicator_count": len(indicators)}}))
 
         # ── Layer 2 steps ────────────────────────────────────────────────────
         append_step("contextual_reasoning", "LLM contextual reasoning: evaluating seasonal and historical context", 2,
@@ -268,6 +282,8 @@ def _run_simulate_pipeline(
             trigger = "structuring_crypto_layering"
         elif "structuring" in indicators:
             trigger = "minor_structuring"
+        elif "round_tripping" in indicators:
+            trigger = "round_tripping"
         elif "income_inconsistency" in indicators and ("new_counterparty_burst" in indicators or "rapid_crypto_conversion" in indicators):
             trigger = "mule_pattern"
         elif "new_counterparty_burst" in indicators:

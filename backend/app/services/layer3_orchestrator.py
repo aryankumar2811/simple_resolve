@@ -80,6 +80,10 @@ FINTRAC_INDICATORS = {
         "description": "Immediate conversion of fiat to crypto (or reverse) upon receipt",
         "fintrac_ref": "Guideline 3-A (Virtual Currency)",
     },
+    "round_tripping": {
+        "description": "Funds leave and return through different channels at similar amounts within 7-21 days",
+        "fintrac_ref": "Guideline 2, Group G",
+    },
 }
 
 
@@ -668,7 +672,7 @@ Return JSON with exactly these keys:
     result = gemini.generate(prompt, fallback=fallback)
     brief_text = json.dumps(result, indent=2)
 
-    return {**state, "evidence_brief": brief_text, "str_sections": result}
+    return {**state, "evidence_brief": brief_text, "str_sections": result, "str_draft_text": brief_text}
 
 
 def _draft_str(state: State) -> State:
@@ -897,56 +901,95 @@ def run_investigation(
     # ── Execute pipeline ──────────────────────────────────────────────────────
     state = _pull_baseline(investigation_id, db)
     n_txns = len(state["flagged_transactions"])
-    _log("baseline_pull", f"Baseline loaded — {n_txns} transactions in review window", 3,
-         f"Behavioral profile + {n_txns} flagged transactions retrieved")
+    _log("baseline_pull", f"Baseline loaded: {n_txns} transactions in review window", 3,
+         json.dumps({"summary": f"Behavioral profile + {n_txns} flagged transactions retrieved",
+                     "data": {"transactions_in_window": n_txns,
+                              "products": list(set(t["product"] for t in state["flagged_transactions"])),
+                              "counterparty_count": len(state["client_profile"].get("known_counterparties", [])),
+                              "overall_risk_score": state["client_profile"].get("overall_risk_score", 0),
+                              "archetype": state["client_profile"].get("archetype", "unknown"),
+                              "account_age_days": state["client_profile"].get("account_age_days", 0)}}))
 
     state = _tag_transactions(state)
-    _log("fintrac_tagging", "FINTRAC indicator tagging complete", 3,
-         "Each transaction annotated with structuring, layering, velocity anomaly indicators")
+    indicator_counts = {}
+    for txn in state["transaction_tags"]:
+        for ind in txn.get("fintrac_indicators", []):
+            name = ind["indicator"]
+            indicator_counts[name] = indicator_counts.get(name, 0) + 1
+    n_flagged_txns = sum(1 for t in state["transaction_tags"] if t.get("fintrac_indicators"))
+    _log("fintrac_tagging", f"FINTRAC indicator tagging: {n_flagged_txns} transactions flagged", 3,
+         json.dumps({"summary": f"{n_flagged_txns} transactions flagged with FINTRAC indicators",
+                     "data": {"total_analyzed": len(state["transaction_tags"]),
+                              "transactions_flagged": n_flagged_txns,
+                              "indicator_breakdown": indicator_counts,
+                              "highest_confidence": round(max((ind["confidence"] for t in state["transaction_tags"] for ind in t.get("fintrac_indicators", [])), default=0), 2)}}))
 
     state = _map_money_flow(state)
     n_nodes = len(state["money_flow"].get("nodes", []))
     n_edges = len(state["money_flow"].get("edges", []))
-    _log("money_flow_mapping", f"Money flow graph built — {n_nodes} nodes, {n_edges} edges", 3,
-         f"Directed fund-flow graph: {n_nodes} nodes (products, wallets, counterparties), {n_edges} edges")
+    node_types = {}
+    for n in state["money_flow"].get("nodes", []):
+        node_types[n["type"]] = node_types.get(n["type"], 0) + 1
+    _log("money_flow_mapping", f"Money flow graph: {n_nodes} nodes, {n_edges} edges", 3,
+         json.dumps({"summary": f"Directed fund-flow graph: {n_nodes} nodes, {n_edges} edges",
+                     "data": {"nodes": n_nodes, "edges": n_edges,
+                              "node_types": node_types,
+                              "total_flow": round(sum(e.get("amount", 0) for e in state["money_flow"].get("edges", [])), 2),
+                              "external_destinations": [n["label"] for n in state["money_flow"].get("nodes", []) if n["type"] in ("external_destination", "external_wallet")]}}))
 
     state = _correlate_clients(state, db)
     n_linked = len(state["correlated_clients"])
     if state["is_coordinated"]:
         _log("cross_client_correlation",
              f"Cross-client correlation: {n_linked} linked client(s) found", 3,
-             f"Pattern match across 3.2M accounts — {n_linked} client(s) share wallet cluster or deposit timing",
+             json.dumps({"summary": f"Pattern match across 3.2M accounts: {n_linked} client(s) linked",
+                         "data": {"linked_clients": [{"name": c["client_name"], "link_type": c["link_type"]} for c in state["correlated_clients"]],
+                                  "wallet_clusters": list(set(c.get("wallet_cluster", "") for c in state["correlated_clients"] if c.get("wallet_cluster"))),
+                                  "is_coordinated": True}}),
              "coordinated_alert")
     else:
         _log("cross_client_correlation", "Cross-client correlation: no linked accounts detected", 3,
-             "Scanned 3.2M accounts — activity isolated to this client")
+             json.dumps({"summary": "Scanned 3.2M accounts: activity isolated to this client",
+                         "data": {"is_coordinated": False, "linked_clients": []}}))
 
     state = _check_external(state)
-    _log("sanctions_pep_check", "Sanctions/PEP check complete — no match", 3,
-         "FINTRAC, OFAC, UN, EU lists checked — no sanctions or PEP match")
+    _log("sanctions_pep_check", "Sanctions/PEP check complete: no match", 3,
+         json.dumps({"summary": "FINTRAC, OFAC, UN, EU lists checked: no sanctions or PEP match",
+                     "data": {"sanctions_match": False, "pep_match": False,
+                              "lists_checked": ["FINTRAC", "OFAC", "UN", "EU"]}}))
 
     state = _classify(state)
     conf = state["confidence"]
     cls = state["classification"].replace("_", " ")
     _log("classification", f"AI classification: {cls} ({conf:.0f}% confidence)", 3,
-         state.get("reasoning", "")[:120] + "…" if len(state.get("reasoning", "")) > 120 else state.get("reasoning", ""))
+         json.dumps({"summary": state.get("reasoning", "")[:200],
+                     "data": {"classification": state["classification"],
+                              "confidence": state["confidence"],
+                              "full_reasoning": state.get("reasoning", "")}}))
 
     # ── Terminal node ─────────────────────────────────────────────────────────
     if state["classification"] == "de_escalate":
         state = _de_escalate(state, db)
-        _log("de_escalation", "Auto de-escalation applied — restriction level reduced", 3,
-             "Risk trajectory stable; behavioral pattern consistent with baseline",
+        _log("de_escalation", "Auto de-escalation applied: restriction level reduced", 3,
+             json.dumps({"summary": "Risk trajectory stable; behavioral pattern consistent with baseline",
+                         "data": {"action": "de_escalated", "reasoning": state.get("reasoning", "")}}),
              "auto_de_escalated")
     elif state["classification"] == "fast_track":
         state = _fast_track_brief(state)
         _log("fast_track_brief", "Fast-track investigation brief generated", 3,
-             "Structured 60-second brief prepared for human reviewer")
+             json.dumps({"summary": "Structured 60-second brief prepared for human reviewer",
+                         "data": {"sections": list(state.get("str_sections", {}).keys()) if isinstance(state.get("str_sections"), dict) else [],
+                                  "recommendation": state.get("str_sections", {}).get("the_one_question", "") if isinstance(state.get("str_sections"), dict) else ""}}))
     else:
-        _log("str_drafting", "Drafting FINTRAC Suspicious Transaction Report…", 3,
-             "Synthesising behavioral baseline, FINTRAC indicators, and network analysis")
+        _log("str_drafting", "Drafting FINTRAC Suspicious Transaction Report", 3,
+             json.dumps({"summary": "Synthesizing behavioral baseline, FINTRAC indicators, and network analysis",
+                         "data": {"stage": "generating_narrative"}}))
         state = _draft_str(state)
-        _log("str_complete", "STR draft complete — ready for human review", 3,
-             "Full FINTRAC narrative generated; investigation routed to analyst queue")
+        _log("str_complete", "STR draft complete: ready for human review", 3,
+             json.dumps({"summary": "Full FINTRAC narrative generated; investigation routed to analyst queue",
+                         "data": {"narrative_length": len(state.get("str_draft_text", "")),
+                                  "sections_generated": list(state.get("str_sections", {}).keys()) if isinstance(state.get("str_sections"), dict) else [],
+                                  "recommendation": state.get("str_sections", {}).get("recommendation", "") if isinstance(state.get("str_sections"), dict) else ""}}))
 
     # ── Persist ───────────────────────────────────────────────────────────────
     result = _persist_results(state, db)

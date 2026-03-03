@@ -21,7 +21,7 @@ export default function RiskTimeline({ data }: Props) {
 
   return (
     <div className="bg-white rounded-lg border border-slate-200 p-4">
-      <h3 className="text-sm font-semibold text-slate-700 mb-3">Risk Score — 30-Day History</h3>
+      <h3 className="text-sm font-semibold text-slate-700 mb-3">Risk Score: 30-Day History</h3>
       <ResponsiveContainer width="100%" height={180}>
         <AreaChart data={formatted} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
           <defs>

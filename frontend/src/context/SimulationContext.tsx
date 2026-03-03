@@ -18,6 +18,7 @@ export interface SimClientState {
 interface MultiSimulationState {
   isRunning: boolean
   isModalOpen: boolean
+  displayMode: 'inline' | 'expanded'
   clients: SimClientState[]
   activeClientIndex: number
   allComplete: boolean
@@ -26,6 +27,8 @@ interface MultiSimulationState {
 
 interface SimulationContextValue extends MultiSimulationState {
   startSimulation: (clients: { clientId: string; clientName: string }[], onComplete?: () => void) => Promise<void>
+  expandModal: () => void
+  collapseToInline: () => void
   closeModal: () => void
   reset: () => void
 }
@@ -39,6 +42,7 @@ export function SimulationProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<MultiSimulationState>({
     isRunning: false,
     isModalOpen: false,
+    displayMode: 'inline',
     clients: [],
     activeClientIndex: 0,
     allComplete: false,
@@ -133,7 +137,7 @@ export function SimulationProvider({ children }: { children: ReactNode }) {
               resolve()
             }
           } catch {
-            // polling error — non-fatal, keep retrying
+            // polling error - non-fatal, keep retrying
           }
         }, 900)
       })
@@ -166,7 +170,8 @@ export function SimulationProvider({ children }: { children: ReactNode }) {
 
     setState({
       isRunning: true,
-      isModalOpen: true,
+      isModalOpen: false,
+      displayMode: 'inline',
       clients: initialClients,
       activeClientIndex: 0,
       allComplete: false,
@@ -192,8 +197,16 @@ export function SimulationProvider({ children }: { children: ReactNode }) {
     if (onComplete) onComplete()
   }, [stopPolling, runClient])
 
+  const expandModal = useCallback(() => {
+    setState(prev => ({ ...prev, isModalOpen: true, displayMode: 'expanded' }))
+  }, [])
+
+  const collapseToInline = useCallback(() => {
+    setState(prev => ({ ...prev, isModalOpen: false, displayMode: 'inline' }))
+  }, [])
+
   const closeModal = useCallback(() => {
-    setState(prev => ({ ...prev, isModalOpen: false }))
+    setState(prev => ({ ...prev, isModalOpen: false, displayMode: 'inline' }))
   }, [])
 
   const reset = useCallback(() => {
@@ -202,6 +215,7 @@ export function SimulationProvider({ children }: { children: ReactNode }) {
     setState({
       isRunning: false,
       isModalOpen: false,
+      displayMode: 'inline',
       clients: [],
       activeClientIndex: 0,
       allComplete: false,
@@ -210,7 +224,7 @@ export function SimulationProvider({ children }: { children: ReactNode }) {
   }, [stopPolling])
 
   return (
-    <SimulationContext.Provider value={{ ...state, startSimulation, closeModal, reset }}>
+    <SimulationContext.Provider value={{ ...state, startSimulation, expandModal, collapseToInline, closeModal, reset }}>
       {children}
     </SimulationContext.Provider>
   )

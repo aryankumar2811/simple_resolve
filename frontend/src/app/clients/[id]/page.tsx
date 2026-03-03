@@ -82,9 +82,17 @@ export default function ClientProfilePage() {
           <h1 className="text-2xl font-bold text-slate-900">{client.name}</h1>
           <p className="text-sm text-slate-500 font-mono mt-0.5">{client.id}</p>
         </div>
-        <span className={`border text-sm font-semibold px-3 py-1 rounded-full ${LEVEL_BADGE[client.active_restriction_level]}`}>
-          Level {client.active_restriction_level} — {LEVEL_LABEL[client.active_restriction_level]}
-        </span>
+        <div className="text-right">
+          <span className={`border text-sm font-semibold px-3 py-1 rounded-full ${LEVEL_BADGE[client.active_restriction_level]}`}>
+            {client.active_restriction_level === 0 ? 'Resolved' : `Level ${client.active_restriction_level}: ${LEVEL_LABEL[client.active_restriction_level]}`}
+          </span>
+          {client.active_restriction_level === 2 && (
+            <p className="text-xs text-amber-600 mt-1.5">Step-up authentication active on flagged operations</p>
+          )}
+          {client.active_restriction_level >= 3 && (
+            <p className="text-xs text-orange-600 mt-1.5">Full investigation initiated. Capabilities restricted.</p>
+          )}
+        </div>
       </div>
 
       {/* Tab bar (only if investigation data available) */}
@@ -264,7 +272,7 @@ export default function ClientProfilePage() {
                         <td className="px-4 py-1.5 font-semibold text-slate-800">
                           ${t.amount.toLocaleString()}
                         </td>
-                        <td className="px-4 py-1.5 text-slate-500">{t.counterparty_name || '—'}</td>
+                        <td className="px-4 py-1.5 text-slate-500">{t.counterparty_name || '-'}</td>
                       </tr>
                     ))}
                   </tbody>

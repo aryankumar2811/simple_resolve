@@ -147,6 +147,38 @@ _FALLBACKS: dict[str, dict] = {
         ),
         "reasoning": "Fallback: coordinated crypto activity. Restricting crypto sends.",
     },
+    "round_tripping": {
+        "level": 3,
+        "restricted_capabilities": ["e_transfer_out_new", "wire_out"],
+        "allowed_capabilities": [
+            "chequing_deposit", "e_transfer_in", "bill_payment",
+            "investment_buy", "investment_sell",
+        ],
+        "client_message": (
+            "We've temporarily restricted outbound wire transfers pending a "
+            "verification review. All other account features remain available."
+        ),
+        "reasoning": (
+            "Round-tripping pattern detected: funds leaving and returning through "
+            "different channels at similar amounts. Restricting outbound transfers."
+        ),
+    },
+    "account_takeover": {
+        "level": 3,
+        "restricted_capabilities": [
+            "e_transfer_out_new", "crypto_buy", "crypto_send_external",
+        ],
+        "allowed_capabilities": ["chequing_deposit", "bill_payment"],
+        "client_message": (
+            "Your account has been temporarily secured due to unusual activity. "
+            "Please contact our support team to verify your identity."
+        ),
+        "reasoning": (
+            "Suspected account takeover: sudden behavioral deviation from long-term "
+            "baseline with new device and new counterparties. Restricting all outbound "
+            "and crypto operations pending verification."
+        ),
+    },
 }
 
 _DEFAULT_FALLBACK = {

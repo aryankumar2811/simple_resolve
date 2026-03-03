@@ -15,7 +15,7 @@ body {
   background: rgb(var(--background-rgb));
 }
 
-/* Neobrutalism utilities — used exclusively on the landing page */
+/* Neobrutalism utilities - used exclusively on the landing page */
 .nb-card {
   border: 2px solid #0F0F0F;
   box-shadow: 4px 4px 0 #0F0F0F;

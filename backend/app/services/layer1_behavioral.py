@@ -142,6 +142,27 @@ def _detect_new_counterparty_burst(transactions: list, known_cps: list) -> float
     return 0.0
 
 
+def _detect_round_tripping(transactions: list) -> float:
+    """
+    Funds leaving and returning through different channels at similar amounts
+    within 7-21 days suggests round-tripping to obscure origin (FINTRAC Guideline 2-G).
+    """
+    outflows = [t for t in transactions if t.type in ("e_transfer_out", "crypto_send")]
+    inflows = [t for t in transactions if t.type in ("e_transfer_in", "deposit")]
+
+    for out_txn in outflows:
+        for in_txn in inflows:
+            gap_days = (in_txn.timestamp - out_txn.timestamp).total_seconds() / 86400
+            if 7 <= gap_days <= 21:
+                high = max(out_txn.amount, in_txn.amount)
+                if high == 0:
+                    continue
+                amount_ratio = min(out_txn.amount, in_txn.amount) / high
+                if amount_ratio >= 0.85 and out_txn.counterparty_name != in_txn.counterparty_name:
+                    return 0.82
+    return 0.0
+
+
 # ── Archetype classification ──────────────────────────────────────────────────
 
 def _classify_archetype(
@@ -246,6 +267,7 @@ def compute_profile(client_id: str, db: Session) -> BehavioralProfile:
     crypto_conf = _detect_rapid_crypto_conversion(recent_txns)
     income_conf = _detect_income_inconsistency(all_txns, client.stated_income)
     cp_conf = _detect_new_counterparty_burst(recent_txns, known_counterparties)
+    round_trip_conf = _detect_round_tripping(recent_txns)
 
     # Product-scoped scores: the highest relevant indicator per product
     risk_scores: dict[str, float] = {}
@@ -253,7 +275,7 @@ def compute_profile(client_id: str, db: Session) -> BehavioralProfile:
     chequing_txns = [t for t in recent_txns if t.product == "chequing"]
     if chequing_txns:
         risk_scores["chequing"] = round(
-            max(struct_conf, income_conf, cp_conf), 3
+            max(struct_conf, income_conf, cp_conf, round_trip_conf), 3
         )
 
     crypto_txns = [t for t in recent_txns if t.product == "crypto"]
@@ -286,6 +308,7 @@ def compute_profile(client_id: str, db: Session) -> BehavioralProfile:
         ("rapid_crypto_conversion", crypto_conf),
         ("income_inconsistency", income_conf),
         ("new_counterparty_burst", cp_conf),
+        ("round_tripping", round_trip_conf),
     ]:
         if confidence >= 0.50:
             indicators_detected.append({

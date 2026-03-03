@@ -64,10 +64,10 @@ export default async function InvestigationsPage() {
                     <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${CLASSIFICATION_BADGE[inv.classification] || ''}`}>
                       {inv.classification.replace(/_/g, ' ')}
                     </span>
-                  ) : <span className="text-slate-400">—</span>}
+                  ) : <span className="text-slate-400">-</span>}
                 </td>
                 <td className="px-4 py-3 text-slate-600">
-                  {inv.confidence !== null ? `${inv.confidence?.toFixed(0)}%` : '—'}
+                  {inv.confidence !== null ? `${inv.confidence?.toFixed(0)}%` : '-'}
                 </td>
                 <td className="px-4 py-3">
                   {inv.is_coordinated ? (
